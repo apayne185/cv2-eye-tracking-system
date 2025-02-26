@@ -15,6 +15,8 @@ if not cap.isOpened():
 else:
     print("Webcam successfully opened!")
 
+
+
 # eye landmarks from mediapipe facemesh model 
 LEFT_EYE_LANDMARKS = [33, 133, 160, 158, 159, 144, 145, 153]  
 RIGHT_EYE_LANDMARKS = [362, 263, 387, 385, 386, 374, 380, 373]
@@ -60,8 +62,9 @@ while cap.isOpened():
     results = face_mesh.process(rgb_frame)  
     gaze_points = []  
 
+
     if results.multi_face_landmarks:
-        for face_landmarks in results.multi_face_landmarks: 
+        for face_landmarks in results.multi_face_landmarks:  
             draw_eye_lm(frame, face_landmarks, LEFT_EYE_LANDMARKS, (0, 255, 0))          #left eye green
             draw_eye_lm(frame, face_landmarks, RIGHT_EYE_LANDMARKS, (255, 0, 0))          #right eye blue 
 
@@ -69,10 +72,11 @@ while cap.isOpened():
             right_eye_center = get_eye_center(face_landmarks, RIGHT_EYE_LANDMARKS, frame.shape)
 
             gaze_x = (left_eye_center[0] + right_eye_center[0]) // 2            #avg of both eyes
-            gaze_y = (left_eye_center[1] + right_eye_center[1]) // 2
+            gaze_y = (left_eye_center[1] + right_eye_center[1]) // 2 
             gaze_points.append((gaze_x, gaze_y))
 
-            cv2.circle(frame, (gaze_x, gaze_y), 5, (0, 0, 255), -1) 
+            cv2.circle(frame, (gaze_x, gaze_y), 5, (0, 0, 255), -1)  
+ 
 
      
     if len(gaze_points) > 1:
@@ -82,8 +86,6 @@ while cap.isOpened():
     else:
         cv2.imshow("Eye Gaze Heatmap", frame)
 
-
-    # cv2.imshow("Eye landmarks", frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):      #press q to quit
         break 

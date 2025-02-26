@@ -1,8 +1,8 @@
 import cv2
 import numpy as np
-import seaborn as sns
-import pandas as pd
-import matplotlib.pyplot as plt
+# import seaborn as sns
+# import pandas as pd
+# import matplotlib.pyplot as plt
 
 
  
@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
  
 def generate_heatmap(frame, gaze_points): 
-    heatmap = np.zeros(frame[:2], dtype=np.float32)
+    heatmap = np.zeros(frame.shape[:2], dtype=np.float32)
 
     #add gaze points to the heatmap
     for x, y in gaze_points:
@@ -24,9 +24,12 @@ def generate_heatmap(frame, gaze_points):
 
    
     #normalize heatmap -- for visualization 
-    heatmap = cv2.GaussianBlur(heatmap, (99,99), 0)
-    heatmap = (heatmap/ np.max(heatmap) * 255).astype(np.uint8)
-
+    heatmap = cv2.GaussianBlur(heatmap, (25,25), 0)       #i think 99 was too aggressive
+    if np.max(heatmap) > 0:
+        heatmap = (heatmap / np.max(heatmap) * 255).astype(np.uint8)
+    else:
+        heatmap = np.zeros_like(heatmap, dtype=np.uint8)
+        
     #color map
     heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
 
