@@ -9,34 +9,42 @@ import numpy as np
 # def load_gaze_data(csv_path): 
 #     return pd.read_csv(csv_path)
 
-
  
-def generate_heatmap(frame, gaze_points): 
-    heatmap = np.zeros(frame.shape[:2], dtype=np.float32)
+def generate_heatmap(accum): 
+
+    
+    # CHANGE: NORMALIZE THE BLURRED HEATMAP
+    if np.max(accum) > 0:
+        accum = (accum / np.max(accum) * 255).astype(np.uint8)
+    else:
+        acccum = np.zeros_like(accum, dtype=np.uint8)
+    # CHANGE: APPLY COLOR MAP
+    accum = cv2.applyColorMap(accum, cv2.COLORMAP_JET)
+    return accum
 
     #add gaze points to the heatmap
-    for x, y in gaze_points:
+    #for x, y in gaze_points:
         # x,y = int(row['x']), int(row['y'])
         # if 0 <= x < image_shape[1] and 0 <= y < image_shape[0]: 
         #     heatmap_img[y,x] += 1
-        if 0 <= x < frame.shape[1] and 0 <= y < frame.shape[0]:
-            heatmap[y, x] += 1
+       # if 0 <= x < frame.shape[1] and 0 <= y < frame.shape[0]:
+           # heatmap[y, x] += 1
 
    
     #normalize heatmap -- for visualization 
-    heatmap = cv2.GaussianBlur(heatmap, (25,25), 0)       #i think 99 was too aggressive
-    if np.max(heatmap) > 0:
-        heatmap = (heatmap / np.max(heatmap) * 255).astype(np.uint8)
-    else:
-        heatmap = np.zeros_like(heatmap, dtype=np.uint8)
+    #heatmap = cv2.GaussianBlur(heatmap, (25,25), 0)       #i think 99 was too aggressive
+    #if np.max(heatmap) > 0:
+      #  heatmap = (heatmap / np.max(heatmap) * 255).astype(np.uint8)
+   # else:
+    #    heatmap = np.zeros_like(heatmap, dtype=np.uint8)
         
     #color map
-    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+    #heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
 
     # cv2.imwrite(output_path, heatmap_img)
     # print(f'Heatmap saved to {output_path}')
 
-    return heatmap
+    #return heatmap
 
 
 
