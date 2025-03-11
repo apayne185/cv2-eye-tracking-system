@@ -24,7 +24,7 @@ def generate_heatmap(frame, gaze_points):
 
    
     #normalize heatmap -- for visualization 
-    heatmap = cv2.GaussianBlur(heatmap, (25,25), 0)       #i think 99 was too aggressive
+    heatmap = cv2.GaussianBlur(heatmap, (45,45), 0)       #i think 99 was too aggressive
     if np.max(heatmap) > 0:
         heatmap = (heatmap / np.max(heatmap) * 255).astype(np.uint8)
     else:
