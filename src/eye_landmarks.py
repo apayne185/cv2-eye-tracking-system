@@ -2,6 +2,8 @@ import cv2
 import mediapipe as mp
 import numpy as np 
 from gaze_analysis import generate_heatmap
+from AOI import track_aoi 
+from AOI import print_aoi_time
 
 
 mp_face_mesh = mp.solutions.face_mesh
@@ -20,6 +22,9 @@ else:
 # eye landmarks from mediapipe facemesh model 
 LEFT_EYE_LANDMARKS = [33, 133, 160, 158, 159, 144, 145, 153]  
 RIGHT_EYE_LANDMARKS = [362, 263, 387, 385, 386, 374, 380, 373]
+# Store separate gaze points for each eye
+left_gaze_points = []
+right_gaze_points = []
 
 def draw_eye_lm(frame, face_landmarks, eye_landmarks, color): 
     h, w, _ = frame.shape
@@ -60,7 +65,7 @@ while cap.isOpened():
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)   #convert frames to RGB for mediapipe
     #detects facial landmarks 
     results = face_mesh.process(rgb_frame)  
-    gaze_points = []  
+ 
 
 
     if results.multi_face_landmarks:
@@ -73,25 +78,38 @@ while cap.isOpened():
 
             gaze_x = (left_eye_center[0] + right_eye_center[0]) // 2            #avg of both eyes
             gaze_y = (left_eye_center[1] + right_eye_center[1]) // 2 
-            gaze_points.append((gaze_x, gaze_y))
+            
+            
+            left_gaze_points.append(left_eye_center)
+            right_gaze_points.append(right_eye_center)
 
-            cv2.circle(frame, (gaze_x, gaze_y), 5, (0, 0, 255), -1)  
- 
+            # Draw red dots at both eye centers
+            cv2.circle(frame, left_eye_center, 5, (0, 0, 255), -1)  # Left eye
+            cv2.circle(frame, right_eye_center, 5, (0, 255, 255), -1)  # Right eye (Yellow)
+            # Track the gaze within AOIs
+            track_aoi(frame, (gaze_x, gaze_y))  # Call AOI tracking function
+            
 
      
-    if len(gaze_points) > 1:
-        heatmap = generate_heatmap(frame, gaze_points)
+    # Generate heatmap for both eyes
+    if len(left_gaze_points) > 1 and len(right_gaze_points) > 1:
+        combined_gaze_points = left_gaze_points + right_gaze_points  # Combine both eye data
+        heatmap = generate_heatmap(frame, combined_gaze_points)
         overlay = cv2.addWeighted(frame, 0.6, heatmap, 0.4, 0)
         cv2.imshow("Eye Gaze Heatmap", overlay)
     else:
         cv2.imshow("Eye Gaze Heatmap", frame)
 
-
-    if cv2.waitKey(1) & 0xFF == ord('q'):      #press q to quit
-        break 
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        #saving the heatmap in an image 
+        cv2.imwrite("eye_gaze_heatmap.jpg", heatmap)
+        #saving the frame with the heatmap overlay
+        cv2.imwrite("eye_gaze_heatmap_overlay.jpg", overlay)
+        
+        print_aoi_time()
+        
+        break
 
 
 cap.release()
 cv2.destroyAllWindows()  
-
-
