@@ -16,15 +16,12 @@ def generate_heatmap(frame, gaze_points):
 
     #add gaze points to the heatmap
     for x, y in gaze_points:
-        # x,y = int(row['x']), int(row['y'])
-        # if 0 <= x < image_shape[1] and 0 <= y < image_shape[0]: 
-        #     heatmap_img[y,x] += 1
         if 0 <= x < frame.shape[1] and 0 <= y < frame.shape[0]:
-            heatmap[y, x] += 1
+            heatmap[y, x] += 3
 
    
     #normalize heatmap -- for visualization 
-    heatmap = cv2.GaussianBlur(heatmap, (45,45), 0)       #i think 99 was too aggressive
+    heatmap = cv2.GaussianBlur(heatmap, (99,99), 0)       #i think 99 was too aggressive
     if np.max(heatmap) > 0:
         heatmap = (heatmap / np.max(heatmap) * 255).astype(np.uint8)
     else:
@@ -32,9 +29,6 @@ def generate_heatmap(frame, gaze_points):
         
     #color map
     heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-
-    # cv2.imwrite(output_path, heatmap_img)
-    # print(f'Heatmap saved to {output_path}')
 
     return heatmap
 

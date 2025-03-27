@@ -2,6 +2,8 @@ import cv2
 import mediapipe as mp
 import numpy as np 
 from gaze_analysis import generate_heatmap
+from AOI import track_aoi 
+from AOI import print_aoi_time
 
 
 mp_face_mesh = mp.solutions.face_mesh
@@ -84,6 +86,9 @@ while cap.isOpened():
             # Draw red dots at both eye centers
             cv2.circle(frame, left_eye_center, 5, (0, 0, 255), -1)  # Left eye
             cv2.circle(frame, right_eye_center, 5, (0, 255, 255), -1)  # Right eye (Yellow)
+            # Track the gaze within AOIs
+            track_aoi(frame, (gaze_x, gaze_y))  # Call AOI tracking function
+            
 
      
     # Generate heatmap for both eyes
@@ -95,6 +100,16 @@ while cap.isOpened():
     else:
         cv2.imshow("Eye Gaze Heatmap", frame)
 
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        #saving the heatmap in an image 
+        cv2.imwrite("eye_gaze_heatmap.jpg", heatmap)
+        #saving the frame with the heatmap overlay
+        cv2.imwrite("eye_gaze_heatmap_overlay.jpg", overlay)
+        
+        print_aoi_time()
+        
+        break
+
+
+cap.release()
 cv2.destroyAllWindows()  
-
-
