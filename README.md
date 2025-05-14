@@ -44,7 +44,7 @@ python AOI.py
 ```
 Note: Adjust the input source (webcam or video file) in the script if needed.
 
-Project Structure
+## Project Structure
 ```perl
 cv2-eye-tracking-system/
 │
