@@ -30,7 +30,7 @@ cd cv2-eye-tracking-system
 * Dlib
 * MediaPipe
 
-##Usage
+## Usage
 Navigate to the src directory and run:
 
 ```bash
