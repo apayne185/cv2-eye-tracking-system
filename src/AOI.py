@@ -1,48 +1,49 @@
 import cv2
-from collections import defaultdict
 import time
+from collections import defaultdict
 
-# Define AOIs (Areas of Interest) as rectangles (x1, y1, x2, y2)
-AOIs = {
-    "Left Sidebar": (50, 100, 300, 400),  # Example coordinates
-    "Product Area": (320, 100, 600, 400),
-    "Right Sidebar": (610, 100, 900, 400),
+# Default AOI layout — override by passing a dict to AOITracker.__init__
+DEFAULT_AOIS = {
+    "Left":   (50,  100, 300, 400),
+    "Center": (320, 100, 600, 400),
+    "Right":  (610, 100, 900, 400),
 }
 
-# Initialize the dictionary to track time spent in each AOI
-aoi_time_spent = defaultdict(float)
-last_gaze_time = None
 
-# Function to check if gaze is within a given AOI
-def check_aoi(gaze_point, aoi):
-    x, y = gaze_point
-    x1, y1, x2, y2 = aoi
-    return x1 <= x <= x2 and y1 <= y <= y2
+class AOITracker:
+    def __init__(self, aois=None):
+        self.aois       = aois or DEFAULT_AOIS
+        self.time_spent = defaultdict(float)
+        self._last_ts   = None
 
-# Function to draw AOIs on the frame
-def draw_aoi(frame, aoi, color, label):
-    x1, y1, x2, y2 = aoi
-    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-    cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+    def track(self, frame, gaze_point):
+        """
+        Draws all AOIs on frame and accumulates dwell time for the active one.
+        Returns the name of the active AOI, or None.
+        """
+        now    = time.time()
+        active = None
 
-# Function to track time spent in each AOI
-def track_aoi(frame, gaze_point):
-    global last_gaze_time, aoi_time_spent
+        for name, (x1, y1, x2, y2) in self.aois.items():
+            gx, gy = gaze_point
+            inside = x1 <= gx <= x2 and y1 <= gy <= y2
 
-    current_time = time.time()
+            color = (0, 255, 0) if inside else (100, 100, 100)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2 if inside else 1)
+            cv2.putText(frame, name, (x1, y1 - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
 
-    # Only update if gaze is inside an AOI
-    for aoi_name, aoi in AOIs.items():
-        if check_aoi(gaze_point, aoi):
-            if last_gaze_time is not None:
-                aoi_time_spent[aoi_name] += current_time - last_gaze_time
-            draw_aoi(frame, aoi, (0, 255, 0), aoi_name)  # Draw AOI on frame
+            if inside:
+                active = name
+                if self._last_ts is not None:
+                    self.time_spent[name] += now - self._last_ts
 
-    # Update last_gaze_time with the current time
-    last_gaze_time = current_time
+        self._last_ts = now
+        return active
 
-# Function to print AOI time stats
-def print_aoi_time():
-    print("Time spent in each AOI:")
-    for aoi_name, time_spent in aoi_time_spent.items():
-        print(f"{aoi_name}: {time_spent:.2f} seconds")
+    def print_summary(self):
+        if not self.time_spent:
+            return
+        print("\n--- AOI Dwell Time ---")
+        for name, secs in sorted(self.time_spent.items(), key=lambda x: -x[1]):
+            print(f"  {name}: {secs:.2f}s")
