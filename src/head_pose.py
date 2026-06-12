@@ -63,3 +63,44 @@ class HeadPoseEstimator:
         cv2.line(frame, tuple(self._nose), tuple(projected[0].ravel()), (0,   0, 255), 2)  # X red
         cv2.line(frame, tuple(self._nose), tuple(projected[1].ravel()), (0, 255,   0), 2)  # Y green
         cv2.line(frame, tuple(self._nose), tuple(projected[2].ravel()), (255,  0,   0), 2)  # Z blue
+
+    @property
+    def rotation_matrix(self) -> np.ndarray | None:
+        """3×3 rotation matrix from the last estimate() call, or None."""
+        if self._rvec is None:
+            return None
+        R, _ = cv2.Rodrigues(self._rvec)
+        return R
+
+    @property
+    def translation_vector(self) -> np.ndarray | None:
+        """(3,1) translation vector from the last estimate() call, or None."""
+        return self._tvec
+
+    def draw_gaze_ray(self, frame: np.ndarray,
+                      origin: np.ndarray, direction: np.ndarray,
+                      length: float = 150.0) -> None:
+        """
+        Projects a 3D gaze ray (origin + direction, in camera coordinates)
+        onto the frame and draws it as an orange arrow.
+        length is in the same units as the face model (mm).
+        """
+        def _project(p: np.ndarray) -> tuple[int, int] | None:
+            if p[2] <= 0:
+                return None
+            x = int(self.K[0, 0] * p[0] / p[2] + self.K[0, 2])
+            y = int(self.K[1, 1] * p[1] / p[2] + self.K[1, 2])
+            return x, y
+
+        p1 = _project(origin)
+        p2 = _project(origin + direction * length)
+        if p1 is None or p2 is None:
+            return
+
+        h, w = frame.shape[:2]
+        if not (0 <= p1[0] < w and 0 <= p1[1] < h):
+            return
+
+        p2_clipped = (int(np.clip(p2[0], -w, 2 * w)),
+                      int(np.clip(p2[1], -h, 2 * h)))
+        cv2.arrowedLine(frame, p1, p2_clipped, (0, 165, 255), 2, tipLength=0.25)

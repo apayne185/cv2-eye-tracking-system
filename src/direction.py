@@ -1,24 +1,34 @@
 import cv2
 import numpy as np
 
+# Average of the two eye-corner landmarks in the 6-point face model (mm).
+# Used as the 3D origin of the gaze ray.
+_EYE_MODEL_MIDPOINT = np.array([0.0, 170.0, -135.0])
+
 
 class GazeDirectionEstimator:
     """
-    Fuses iris gaze ratios with head-pose angles to estimate gaze direction.
+    Fuses iris gaze ratios with head-pose angles to estimate gaze direction,
+    and computes a fully 3D gaze ray in camera coordinates.
 
-    Iris ratios alone track where the eye points within the socket; head pose
-    captures where the head is oriented. Combining both gives a direction that
-    remains stable when the subject turns their head while keeping their eyes
-    still, and correctly reflects eye movement independent of head rotation.
+    2-D estimate (dir_h, dir_v):
+      Iris ratios alone track where the eye points within the socket; head pose
+      captures where the head is oriented. Combining both gives a direction that
+      is stable under head rotation.  Output is in [-1, 1].
 
-    Output (dir_h, dir_v) is in [-1, 1]:
-      -1 = full left  / full up
-       0 = straight ahead
-      +1 = full right / full down
+    3-D gaze ray:
+      Uses the rotation matrix from solvePnP to transform the iris-derived
+      gaze direction from head/model space into camera space, producing a
+      physical ray (origin + unit direction) expressed in mm.
     """
 
-    _EYE_SCALE  = 1.4    # iris deviation from centre (±0.5) → direction
-    _HEAD_SCALE = 0.014  # degrees of yaw/pitch → direction
+    _EYE_SCALE  = 1.4    # iris deviation from centre (±0.5) → 2-D direction
+    _HEAD_SCALE = 0.014  # degrees of yaw/pitch → 2-D direction
+
+    # Approximate angular range of voluntary iris movement.
+    # Full ratio range [0, 1] maps to ±half of these values.
+    _EYE_FOV_H = 60.0   # degrees horizontal
+    _EYE_FOV_V = 40.0   # degrees vertical
 
     def estimate(self, ratio_h: float, ratio_v: float,
                  yaw: float, pitch: float) -> tuple[float, float]:
@@ -40,6 +50,49 @@ class GazeDirectionEstimator:
         x = int(np.clip((dir_h + 1) / 2 * screen_w, 0, screen_w - 1))
         y = int(np.clip((dir_v + 1) / 2 * screen_h, 0, screen_h - 1))
         return x, y
+
+    def gaze_ray_3d(
+        self,
+        ratio_h: float,
+        ratio_v: float,
+        rotation_matrix: np.ndarray,
+        translation_vector: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Computes a 3D gaze ray in camera coordinates.
+
+        Converts iris ratios to azimuth/elevation angles in head space, rotates
+        the resulting direction vector into camera space via the head-pose
+        rotation matrix, and translates the ray origin (eye midpoint) similarly.
+
+        Args:
+            ratio_h, ratio_v   : iris position in [0, 1], centre = 0.5
+            rotation_matrix    : 3×3 rotation matrix R from HeadPoseEstimator
+            translation_vector : (3,1) translation t from HeadPoseEstimator
+
+        Returns:
+            origin    : np.ndarray (3,) — eye midpoint in camera coords (mm)
+            direction : np.ndarray (3,) — unit gaze vector in camera coords
+        """
+        R = rotation_matrix
+        t = translation_vector.ravel()
+
+        theta_h = np.radians((ratio_h - 0.5) * self._EYE_FOV_H)
+        theta_v = np.radians((ratio_v - 0.5) * self._EYE_FOV_V)
+
+        ch, sh = np.cos(theta_h), np.sin(theta_h)
+        cv_, sv = np.cos(theta_v), np.sin(theta_v)
+
+        # Rotate forward vector [0,0,1] by iris angles in head space
+        Ry = np.array([[ch, 0, sh], [0, 1, 0], [-sh, 0, ch]])
+        Rx = np.array([[1, 0, 0],  [0, cv_, -sv], [0, sv, cv_]])
+        d_head = Ry @ Rx @ np.array([0.0, 0.0, 1.0])
+
+        origin    = R @ _EYE_MODEL_MIDPOINT + t
+        direction = R @ d_head
+        direction = direction / (np.linalg.norm(direction) + 1e-9)
+
+        return origin, direction
 
     @staticmethod
     def draw_direction_marker(frame: np.ndarray,
