@@ -1,63 +1,30 @@
 import cv2
 import numpy as np
-# import seaborn as sns
-# import pandas as pd
-# import matplotlib.pyplot as plt
 
 
- 
-# def load_gaze_data(csv_path): 
-#     return pd.read_csv(csv_path)
+def make_accumulator(h: int, w: int) -> np.ndarray:
+    return np.zeros((h, w), dtype=np.float32)
 
 
- 
-def generate_heatmap(frame, gaze_points): 
-    heatmap = np.zeros(frame.shape[:2], dtype=np.float32)
+def add_gaze_point(acc: np.ndarray, x: int, y: int) -> None:
+    if 0 <= x < acc.shape[1] and 0 <= y < acc.shape[0]:
+        acc[y, x] += 1.0
 
-    #add gaze points to the heatmap
-    for x, y in gaze_points:
-        if 0 <= x < frame.shape[1] and 0 <= y < frame.shape[0]:
-            heatmap[y, x] += 3
 
-   
-    #normalize heatmap -- for visualization 
-    heatmap = cv2.GaussianBlur(heatmap, (99,99), 0)       #i think 99 was too aggressive
-    if np.max(heatmap) > 0:
-        heatmap = (heatmap / np.max(heatmap) * 255).astype(np.uint8)
+def render_heatmap(acc: np.ndarray, blur_kernel: int = 51) -> np.ndarray:
+    """Renders a heat accumulator array into a JET colormap image."""
+    heat = cv2.GaussianBlur(acc, (blur_kernel, blur_kernel), 0)
+    if heat.max() > 0:
+        heat = (heat / heat.max() * 255).astype(np.uint8)
     else:
-        heatmap = np.zeros_like(heatmap, dtype=np.uint8)
-        
-    #color map
-    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-
-    return heatmap
+        heat = np.zeros_like(heat, dtype=np.uint8)
+    return cv2.applyColorMap(heat, cv2.COLORMAP_JET)
 
 
-
-
-# def plot_gaze_distribution(gaze_data):
-#     plt.figure(figsize=(10,6))
-#     sns.scatterplot(x=gaze_data['x'], y=gaze_data['y'], alpha=0.5)
-#     plt.gca().invert_yaxis()
-#     plt.title("Gaze Point Distribution")    
-#     plt.xlabel("X Coordinate")
-#     plt.ylabel("Y Coordinate ") 
-#     plt.show()  
-
-
-
-# def main():
-#     # csv_path = "../data/gaze_data.csv"
-#     output_heatmap = "gaze_heatmap.jpg"
-#     image_shape = (720, 1280, 3)
-
-#     # gaze_data = load_gaze_data(csv_path=csv_path)
-#     # generate_heatmap(gaze_data=gaze_data, image_shape=image_shape, output_heatmap=output_heatmap)
-#     # plot_gaze_distribution(gaze_data)
-
-#     heatmap = generate_heatmap(frame=np.zeros(image_shape, dtype=np.uint8), gaze_points=gaze_data[['x', 'y']].values)
-#     cv2.imwrite(output_heatmap, heatmap)
-
-
-# if __name__ == "__main__":
-#     main()
+def generate_heatmap(frame: np.ndarray, gaze_points: list,
+                     blur_kernel: int = 51) -> np.ndarray:
+    """Builds a JET-colored heatmap from a list of (x, y) gaze points."""
+    acc = make_accumulator(frame.shape[0], frame.shape[1])
+    for x, y in gaze_points:
+        add_gaze_point(acc, x, y)
+    return render_heatmap(acc, blur_kernel)
