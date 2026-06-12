@@ -97,6 +97,8 @@ def main():
             gaze_x=None, gaze_y=None, gaze_ratio_h=None, gaze_ratio_v=None,
             pitch=None, yaw=None, roll=None,
             dir_h=None, dir_v=None,
+            ray_ox=None, ray_oy=None, ray_oz=None,
+            ray_dx=None, ray_dy=None, ray_dz=None,
             left_ear=None, right_ear=None,
             is_blink=False, is_fixation=False, active_aoi=None,
         )
@@ -128,6 +130,21 @@ def main():
                 dh, dv = dir_est.estimate(rh, rv, yaw, pitch)
                 row.update(dir_h=round(dh, 3), dir_v=round(dv, 3))
                 GazeDirectionEstimator.draw_direction_marker(frame, dh, dv)
+
+                # --- 3D gaze ray ---
+                R = pose_est.rotation_matrix
+                t = pose_est.translation_vector
+                if R is not None:
+                    origin, ray_dir = dir_est.gaze_ray_3d(rh, rv, R, t)
+                    pose_est.draw_gaze_ray(frame, origin, ray_dir)
+                    row.update(
+                        ray_ox=round(float(origin[0]),  1),
+                        ray_oy=round(float(origin[1]),  1),
+                        ray_oz=round(float(origin[2]),  1),
+                        ray_dx=round(float(ray_dir[0]), 3),
+                        ray_dy=round(float(ray_dir[1]), 3),
+                        ray_dz=round(float(ray_dir[2]), 3),
+                    )
 
             # --- AOI ---
             row["active_aoi"] = aoi.track(frame, (gx, gy), ts)
