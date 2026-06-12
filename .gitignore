@@ -1,7 +1,8 @@
-src/__pycache__
+**/__pycache__
 venv
 myenv/
 src/tempCodeRunnerFile.py
 src/old_work
 data/
 *.DS_Store
+.pytest_cache/

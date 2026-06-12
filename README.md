@@ -90,6 +90,8 @@ AOI dwell (frames):
 | `is_blink` | Boolean |
 | `is_fixation` | Boolean |
 | `dir_h`, `dir_v` | Estimated gaze direction in [-1, 1] (iris + head pose fused) |
+| `ray_ox`, `ray_oy`, `ray_oz` | 3D gaze ray origin (eye midpoint in camera coords, mm) |
+| `ray_dx`, `ray_dy`, `ray_dz` | 3D gaze ray unit direction vector in camera coords |
 | `active_aoi` | Name of active Area of Interest, or null |
 
 ---
@@ -123,7 +125,7 @@ cv2-eye-tracking-system/
 The earlier approach averaged the positions of all eye *outline* landmarks, which tracks face movement but not gaze direction. The iris landmarks (MediaPipe 468–477, enabled via `refine_landmarks=True`) give the actual pupil/iris position, so moving your eyes while keeping your head still produces a meaningful signal.
 
 **Head pose as gaze context**  
-`solvePnP` maps six 2D facial landmarks to a known 3D face model to recover the rotation matrix. Roll/pitch/yaw complement the iris ratios: a centered iris with a 30° yaw still points off-center in world space. This is the foundation for full 3D gaze ray estimation.
+`solvePnP` maps six 2D facial landmarks to a known 3D face model to recover the rotation matrix. Roll/pitch/yaw complement the iris ratios: a centered iris with a 30° yaw still points off-center in world space. These extrinsics feed directly into the 3D gaze ray computation.
 
 **Fixation vs. saccade**  
 The velocity threshold (25 px/s) follows the I-VT (Identification by Velocity Threshold) algorithm common in psychophysics research. Saccades typically exceed 300 px/s; the threshold is conservative to reduce noise from head micro-movements.
