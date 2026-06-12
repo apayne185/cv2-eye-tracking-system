@@ -24,13 +24,20 @@ Real-time eye tracking pipeline built with Python, OpenCV, and MediaPipe FaceMes
 
 ## Installation
 
+**conda (recommended):**
 ```bash
 git clone https://github.com/yourusername/cv2-eye-tracking-system.git
 cd cv2-eye-tracking-system
+conda env create -f environment.yml
+conda activate eyetrack
+```
+
+**pip / venv:**
+```bash
 pip install -r requirements.txt
 ```
 
-**Requirements:** Python 3.8+, opencv-python, numpy, mediapipe, pandas
+**Requirements:** Python 3.11, opencv-python, numpy, mediapipe, pandas
 
 ---
 
