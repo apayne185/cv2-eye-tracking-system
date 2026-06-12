@@ -9,4 +9,4 @@ dependencies:
   - pip
   - pip:
       - opencv-python
-      - mediapipe
+      - mediapipe==0.10.9

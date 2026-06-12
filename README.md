@@ -15,6 +15,7 @@ Real-time eye tracking pipeline built with Python, OpenCV, and MediaPipe FaceMes
 | **Iris gaze estimation** | Tracks iris position within eye bounds using MediaPipe's 478-point mesh (landmarks 468–477). Outputs normalized horizontal/vertical gaze ratios. |
 | **3D head pose** | `cv2.solvePnP` on 6 facial landmarks → roll, pitch, yaw in degrees. Axes drawn on nose tip in real time. |
 | **Blink detection** | Eye Aspect Ratio (EAR) formula on both eyes; blink flagged when avg EAR < 0.20. |
+| **Gaze direction estimation** | Fuses iris ratios with head-pose yaw/pitch to produce a head-independent gaze direction vector (dir_h, dir_v) in [-1, 1]. Visualised as a live miniature indicator overlay. |
 | **Fixation detection** | Velocity-based classifier: gaze velocity < 25 px/s for ≥ 100 ms = fixation. Completed fixations logged with duration and position. |
 | **AOI tracking** | Configurable rectangular Areas of Interest with per-AOI dwell time accumulation. |
 | **Heatmap overlay** | Gaussian-blurred JET colormap overlaid on the live frame. |
@@ -26,7 +27,7 @@ Real-time eye tracking pipeline built with Python, OpenCV, and MediaPipe FaceMes
 
 **conda (recommended):**
 ```bash
-git clone https://github.com/yourusername/cv2-eye-tracking-system.git
+git clone https://github.com/apayne185/cv2-eye-tracking-system.git
 cd cv2-eye-tracking-system
 conda env create -f environment.yml
 conda activate eyetrack
@@ -88,6 +89,7 @@ AOI dwell (frames):
 | `left_ear`, `right_ear` | Eye Aspect Ratio per eye |
 | `is_blink` | Boolean |
 | `is_fixation` | Boolean |
+| `dir_h`, `dir_v` | Estimated gaze direction in [-1, 1] (iris + head pose fused) |
 | `active_aoi` | Name of active Area of Interest, or null |
 
 ---
@@ -100,9 +102,14 @@ cv2-eye-tracking-system/
 │   ├── main.py             # Entry point — argparse, main loop, CSV export
 │   ├── eye_tracker.py      # EyeTracker class: iris gaze, EAR blink, fixation
 │   ├── head_pose.py        # HeadPoseEstimator: solvePnP, draw_axes
-│   ├── gaze_analysis.py    # Heatmap generation
+│   ├── direction.py        # GazeDirectionEstimator: fuses iris + head pose
+│   ├── gaze_analysis.py    # Heatmap accumulator and renderer
 │   ├── AOI.py              # AOITracker class with dwell-time accumulation
 │   └── old_work/           # Legacy scripts (reference only)
+├── tests/
+│   ├── test_direction.py   # Direction estimator unit tests
+│   ├── test_fixation.py    # Fixation state machine unit tests
+│   └── test_gaze_analysis.py  # Heatmap accumulator unit tests
 ├── eye_gaze_heatmap.jpg    # Sample heatmap output
 ├── requirements.txt
 └── README.md
@@ -120,3 +127,16 @@ The earlier approach averaged the positions of all eye *outline* landmarks, whic
 
 **Fixation vs. saccade**  
 The velocity threshold (25 px/s) follows the I-VT (Identification by Velocity Threshold) algorithm common in psychophysics research. Saccades typically exceed 300 px/s; the threshold is conservative to reduce noise from head micro-movements.
+
+**Gaze direction fusion**  
+Iris ratios alone are relative to the eye socket — they correctly detect eye movement but are blind to head rotation. `solvePnP` yaw and pitch capture head orientation but ignore where the eyes point within the socket. `GazeDirectionEstimator` linearly combines both signals: `dir_h = iris_deviation * EYE_SCALE + yaw * HEAD_SCALE`. The weights are empirically tuned; a calibration step (mapping known gaze targets to measured ratios) would improve absolute accuracy.
+
+---
+
+## Running the tests
+
+```bash
+conda activate eyetrack
+pip install pytest
+pytest tests/ -v
+```

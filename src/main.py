@@ -8,8 +8,9 @@ import pandas as pd
 
 from eye_tracker import EyeTracker
 from head_pose import HeadPoseEstimator
-from gaze_analysis import generate_heatmap
+from gaze_analysis import make_accumulator, add_gaze_point, render_heatmap, generate_heatmap
 from AOI import AOITracker
+from direction import GazeDirectionEstimator
 
 
 def parse_args():
@@ -73,9 +74,10 @@ def main():
     tracker  = EyeTracker()
     pose_est = HeadPoseEstimator(frame_w, frame_h)
     aoi      = AOITracker()
+    dir_est  = GazeDirectionEstimator()
 
+    heat_acc     = make_accumulator(frame_h, frame_w)
     records      = []
-    gaze_pts     = []
     frame_idx    = 0
     last_frame   = None
     last_overlay = None
@@ -94,6 +96,7 @@ def main():
             frame=frame_idx, timestamp=round(ts, 4),
             gaze_x=None, gaze_y=None, gaze_ratio_h=None, gaze_ratio_v=None,
             pitch=None, yaw=None, roll=None,
+            dir_h=None, dir_v=None,
             left_ear=None, right_ear=None,
             is_blink=False, is_fixation=False, active_aoi=None,
         )
@@ -105,7 +108,7 @@ def main():
             gx, gy, rh, rv = tracker.get_iris_gaze(lms, frame.shape)
             row.update(gaze_x=gx, gaze_y=gy,
                        gaze_ratio_h=round(rh, 3), gaze_ratio_v=round(rv, 3))
-            gaze_pts.append((gx, gy))
+            add_gaze_point(heat_acc, gx, gy)
 
             # --- fixation ---
             row["is_fixation"] = tracker.update_fixation((gx, gy), ts)
@@ -120,12 +123,18 @@ def main():
             if pitch is not None:
                 row.update(pitch=round(pitch, 1), yaw=round(yaw, 1), roll=round(roll, 1))
 
+            # --- gaze direction (iris + head pose) ---
+            if pitch is not None:
+                dh, dv = dir_est.estimate(rh, rv, yaw, pitch)
+                row.update(dir_h=round(dh, 3), dir_v=round(dv, 3))
+                GazeDirectionEstimator.draw_direction_marker(frame, dh, dv)
+
             # --- AOI ---
-            row["active_aoi"] = aoi.track(frame, (gx, gy))
+            row["active_aoi"] = aoi.track(frame, (gx, gy), ts)
 
             # --- draw overlays ---
             tracker.draw_overlays(frame, lms)
-            pose_est.draw_axes(frame, lms)
+            pose_est.draw_axes(frame)
 
             label = "BLINK" if is_blink else _gaze_label(rh, rv)
             color = (0, 0, 255) if is_blink else (0, 255, 0)
@@ -139,8 +148,8 @@ def main():
         records.append(row)
         last_frame = frame.copy()
 
-        if len(gaze_pts) > 10:
-            heatmap      = generate_heatmap(frame, gaze_pts)
+        if frame_idx > 10:
+            heatmap      = render_heatmap(heat_acc)
             last_overlay = cv2.addWeighted(frame, 0.6, heatmap, 0.4, 0)
             cv2.imshow("Eye Tracker", last_overlay)
         else:
@@ -165,8 +174,8 @@ def main():
 
     _print_summary(df, tracker.fixations)
 
-    if gaze_pts and last_frame is not None:
-        heatmap = generate_heatmap(last_frame, gaze_pts)
+    if frame_idx > 0 and last_frame is not None:
+        heatmap = render_heatmap(heat_acc)
         cv2.imwrite(str(out / f"heatmap_{ts_str}.jpg"), heatmap)
         if last_overlay is not None:
             cv2.imwrite(str(out / f"heatmap_overlay_{ts_str}.jpg"), last_overlay)

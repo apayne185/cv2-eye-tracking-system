@@ -1,4 +1,4 @@
 opencv-python
 numpy
-mediapipe
+mediapipe==0.10.9
 pandas

@@ -16,12 +16,13 @@ class AOITracker:
         self.time_spent = defaultdict(float)
         self._last_ts   = None
 
-    def track(self, frame, gaze_point):
+    def track(self, frame, gaze_point, ts=None):
         """
         Draws all AOIs on frame and accumulates dwell time for the active one.
         Returns the name of the active AOI, or None.
+        Pass ts to use a frame-synchronised timestamp instead of wall clock.
         """
-        now    = time.time()
+        now    = ts if ts is not None else time.time()
         active = None
 
         for name, (x1, y1, x2, y2) in self.aois.items():
