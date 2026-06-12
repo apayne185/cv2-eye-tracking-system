@@ -16,6 +16,7 @@ Real-time eye tracking pipeline built with Python, OpenCV, and MediaPipe FaceMes
 | **3D head pose** | `cv2.solvePnP` on 6 facial landmarks → roll, pitch, yaw in degrees. Axes drawn on nose tip in real time. |
 | **Blink detection** | Eye Aspect Ratio (EAR) formula on both eyes; blink flagged when avg EAR < 0.20. |
 | **Gaze direction estimation** | Fuses iris ratios with head-pose yaw/pitch to produce a head-independent gaze direction vector (dir_h, dir_v) in [-1, 1]. Visualised as a live miniature indicator overlay. |
+| **3D point cloud export** | `--export-ply` writes two PLY files on exit: (1) sampled face mesh landmarks coloured by time, (2) 3D gaze ray endpoints coloured by horizontal position. Viewable in MeshLab, CloudCompare, or Open3D. |
 | **Fixation detection** | Velocity-based classifier: gaze velocity < 25 px/s for ≥ 100 ms = fixation. Completed fixations logged with duration and position. |
 | **AOI tracking** | Configurable rectangular Areas of Interest with per-AOI dwell time accumulation. |
 | **Heatmap overlay** | Gaussian-blurred JET colormap overlaid on the live frame. |
@@ -56,6 +57,9 @@ python src/main.py --source path/to/video.mp4
 
 # Custom output directory
 python src/main.py --source 0 --output-dir results/
+
+# Export PLY point clouds (face mesh + gaze trajectory)
+python src/main.py --source 0 --export-ply
 ```
 
 Press **`q`** to quit — the session CSV and heatmap are saved automatically.
@@ -103,8 +107,9 @@ cv2-eye-tracking-system/
 ├── src/
 │   ├── main.py             # Entry point — argparse, main loop, CSV export
 │   ├── eye_tracker.py      # EyeTracker class: iris gaze, EAR blink, fixation
-│   ├── head_pose.py        # HeadPoseEstimator: solvePnP, draw_axes
-│   ├── direction.py        # GazeDirectionEstimator: fuses iris + head pose
+│   ├── head_pose.py        # HeadPoseEstimator: solvePnP, draw_axes, gaze ray
+│   ├── direction.py        # GazeDirectionEstimator: 2D direction + 3D gaze ray
+│   ├── face_mesh_3d.py     # PLY point cloud export: face mesh + gaze trajectory
 │   ├── gaze_analysis.py    # Heatmap accumulator and renderer
 │   ├── AOI.py              # AOITracker class with dwell-time accumulation
 │   └── old_work/           # Legacy scripts (reference only)

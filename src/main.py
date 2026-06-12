@@ -11,6 +11,9 @@ from head_pose import HeadPoseEstimator
 from gaze_analysis import make_accumulator, add_gaze_point, render_heatmap, generate_heatmap
 from AOI import AOITracker
 from direction import GazeDirectionEstimator
+from face_mesh_3d import landmarks_to_numpy, export_session_face_mesh, export_gaze_trajectory
+
+_PLY_SAMPLE_INTERVAL = 30  # save one face mesh snapshot per N frames
 
 
 def parse_args():
@@ -22,6 +25,10 @@ def parse_args():
     p.add_argument(
         "--output-dir", default="../data",
         help="Directory for CSV and heatmap output (default: ../data)",
+    )
+    p.add_argument(
+        "--export-ply", action="store_true",
+        help="Export face mesh and gaze trajectory as PLY point clouds on exit",
     )
     return p.parse_args()
 
@@ -76,11 +83,14 @@ def main():
     aoi      = AOITracker()
     dir_est  = GazeDirectionEstimator()
 
-    heat_acc     = make_accumulator(frame_h, frame_w)
-    records      = []
-    frame_idx    = 0
-    last_frame   = None
-    last_overlay = None
+    heat_acc        = make_accumulator(frame_h, frame_w)
+    records         = []
+    mesh_snapshots  = []   # sampled (N_lm, 3) arrays for PLY export
+    ray_origins     = []   # 3D ray origins per frame
+    ray_directions  = []   # 3D ray directions per frame
+    frame_idx       = 0
+    last_frame      = None
+    last_overlay    = None
 
     print("Running — press 'q' to quit and save results.")
 
@@ -145,6 +155,13 @@ def main():
                         ray_dy=round(float(ray_dir[1]), 3),
                         ray_dz=round(float(ray_dir[2]), 3),
                     )
+                    ray_origins.append(origin)
+                    ray_directions.append(ray_dir)
+
+            if args.export_ply and frame_idx % _PLY_SAMPLE_INTERVAL == 0:
+                mesh_snapshots.append(
+                    landmarks_to_numpy(lms, frame_w, frame_h)
+                )
 
             # --- AOI ---
             row["active_aoi"] = aoi.track(frame, (gx, gy), ts)
@@ -199,6 +216,19 @@ def main():
         print(f"Heatmap saved → {out}/heatmap_{ts_str}.jpg")
 
     aoi.print_summary()
+
+    if args.export_ply:
+        if mesh_snapshots:
+            mesh_path = out / f"face_mesh_{ts_str}.ply"
+            export_session_face_mesh(mesh_path, mesh_snapshots)
+            print(f"Face mesh PLY  → {mesh_path}  ({len(mesh_snapshots)} snapshots)")
+
+        if ray_origins:
+            origins    = np.array(ray_origins,    dtype=np.float32)
+            directions = np.array(ray_directions, dtype=np.float32)
+            traj_path  = out / f"gaze_trajectory_{ts_str}.ply"
+            export_gaze_trajectory(traj_path, origins, directions)
+            print(f"Gaze trajectory PLY → {traj_path}  ({len(origins)} points)")
 
 
 if __name__ == "__main__":
