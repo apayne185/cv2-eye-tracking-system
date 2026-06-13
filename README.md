@@ -138,6 +138,9 @@ The velocity threshold (25 px/s) follows the I-VT (Identification by Velocity Th
 **Gaze direction fusion**  
 Iris ratios alone are relative to the eye socket — they correctly detect eye movement but are blind to head rotation. `solvePnP` yaw and pitch capture head orientation but ignore where the eyes point within the socket. `GazeDirectionEstimator` linearly combines both signals: `dir_h = iris_deviation * EYE_SCALE + yaw * HEAD_SCALE`. The weights are empirically tuned; a calibration step (mapping known gaze targets to measured ratios) would improve absolute accuracy.
 
+**PLY point clouds and the gaze trajectory**  
+The face mesh export writes MediaPipe's 478 per-landmark 3D coordinates (x, y in pixel space; z at the same relative scale) as a binary PLY file — the format used by depth cameras, LiDAR scanners, and 3D reconstruction pipelines. The gaze trajectory cloud projects each session's 3D gaze rays onto a virtual plane at 500 mm depth, producing a spatial map of where the subject's attention landed. Both files can be opened directly in MeshLab, CloudCompare, or Open3D for inspection.
+
 ---
 
 ## Running the tests
