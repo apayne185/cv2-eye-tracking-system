@@ -113,6 +113,8 @@ cv2-eye-tracking-system/
 │   ├── gaze_analysis.py    # Heatmap accumulator and renderer
 │   ├── AOI.py              # AOITracker class with dwell-time accumulation
 │   └── old_work/           # Legacy scripts (reference only)
+├── notebooks/
+│   └── analysis.ipynb      # Offline session analysis — plots, heatmap, stats
 ├── tests/
 │   ├── test_direction.py   # Direction estimator unit tests
 │   ├── test_fixation.py    # Fixation state machine unit tests
@@ -140,6 +142,19 @@ Iris ratios alone are relative to the eye socket — they correctly detect eye m
 
 **PLY point clouds and the gaze trajectory**  
 The face mesh export writes MediaPipe's 478 per-landmark 3D coordinates (x, y in pixel space; z at the same relative scale) as a binary PLY file — the format used by depth cameras, LiDAR scanners, and 3D reconstruction pipelines. The gaze trajectory cloud projects each session's 3D gaze rays onto a virtual plane at 500 mm depth, producing a spatial map of where the subject's attention landed. Both files can be opened directly in MeshLab, CloudCompare, or Open3D for inspection.
+
+---
+
+## Offline Analysis
+
+Open the notebook to analyse any recorded session CSV:
+
+```bash
+conda activate eyetrack
+jupyter lab notebooks/analysis.ipynb
+```
+
+The notebook auto-loads the most recent `data/gaze_*.csv`. Set `CSV_PATH` manually to analyse a specific session. Produces: gaze scatter, EAR/blink plot, fixation timeline, head yaw, AOI dwell, and gaze heatmap.
 
 ---
 
