@@ -6,3 +6,4 @@ src/old_work
 data/
 *.DS_Store
 .pytest_cache/
+condaenv.*.requirements.txt

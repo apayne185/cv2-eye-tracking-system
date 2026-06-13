@@ -12,4 +12,4 @@ dependencies:
   - pip
   - pip:
       - opencv-python
-      - mediapipe==0.10.9
+      - mediapipe>=0.10.9
