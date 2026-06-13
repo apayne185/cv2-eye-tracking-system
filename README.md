@@ -68,7 +68,7 @@ Press **`q`** to quit — the session CSV and heatmap are saved automatically.
 
 ## Output
 
-### Session summary (printed on exit)
+### Session summary (printed on exit and saved to `summary_<timestamp>.txt`)
 ```
 --- Session Summary ---
 Frames recorded:  1842
