@@ -11,6 +11,9 @@ from head_pose import HeadPoseEstimator
 from gaze_analysis import make_accumulator, add_gaze_point, render_heatmap, generate_heatmap
 from AOI import AOITracker
 from direction import GazeDirectionEstimator
+from face_mesh_3d import landmarks_to_numpy, export_session_face_mesh, export_gaze_trajectory
+
+_PLY_SAMPLE_INTERVAL = 30  # save one face mesh snapshot per N frames
 
 
 def parse_args():
@@ -23,6 +26,10 @@ def parse_args():
         "--output-dir", default="../data",
         help="Directory for CSV and heatmap output (default: ../data)",
     )
+    p.add_argument(
+        "--export-ply", action="store_true",
+        help="Export face mesh and gaze trajectory as PLY point clouds on exit",
+    )
     return p.parse_args()
 
 
@@ -32,19 +39,21 @@ def _gaze_label(ratio_h, ratio_v):
     return f"{v} {h}".strip() if v else h
 
 
-def _print_summary(df, fixations):
+def _build_summary(df, fixations, aoi_tracker) -> str:
     n = len(df)
-    blinks      = int(df["is_blink"].sum())
-    fix_frames  = int(df["is_fixation"].sum())
+    blinks     = int(df["is_blink"].sum())
+    fix_frames = int(df["is_fixation"].sum())
 
-    print(f"\n--- Session Summary ---")
-    print(f"Frames recorded:  {n}")
-    print(f"Blinks detected:  {blinks}")
-    print(f"Fixation frames:  {fix_frames}  ({100 * fix_frames / n:.1f}%)")
+    lines = [
+        "--- Session Summary ---",
+        f"Frames recorded:  {n}",
+        f"Blinks detected:  {blinks}",
+        f"Fixation frames:  {fix_frames}  ({100 * fix_frames / n:.1f}%)",
+    ]
 
     if fixations:
         durs = [f["duration"] for f in fixations]
-        print(
+        lines.append(
             f"Fixations:        {len(fixations)}"
             f"  avg={np.mean(durs):.2f}s"
             f"  max={np.max(durs):.2f}s"
@@ -52,9 +61,22 @@ def _print_summary(df, fixations):
 
     aoi_col = df["active_aoi"].dropna()
     if not aoi_col.empty:
-        print("AOI dwell (frames):")
-        for aoi, cnt in aoi_col.value_counts().items():
-            print(f"  {aoi}: {cnt}  ({100 * cnt / n:.1f}%)")
+        lines.append("AOI dwell (frames):")
+        for name, cnt in aoi_col.value_counts().items():
+            lines.append(f"  {name}: {cnt}  ({100 * cnt / n:.1f}%)")
+
+    if aoi_tracker.time_spent:
+        lines.append("AOI dwell (seconds):")
+        for name, secs in sorted(aoi_tracker.time_spent.items(), key=lambda x: -x[1]):
+            lines.append(f"  {name}: {secs:.2f}s")
+
+    return "\n".join(lines)
+
+
+def _print_summary(df, fixations, aoi_tracker) -> str:
+    summary = _build_summary(df, fixations, aoi_tracker)
+    print(f"\n{summary}")
+    return summary
 
 
 def main():
@@ -76,11 +98,14 @@ def main():
     aoi      = AOITracker()
     dir_est  = GazeDirectionEstimator()
 
-    heat_acc     = make_accumulator(frame_h, frame_w)
-    records      = []
-    frame_idx    = 0
-    last_frame   = None
-    last_overlay = None
+    heat_acc        = make_accumulator(frame_h, frame_w)
+    records         = []
+    mesh_snapshots  = []   # sampled (N_lm, 3) arrays for PLY export
+    ray_origins     = []   # 3D ray origins per frame
+    ray_directions  = []   # 3D ray directions per frame
+    frame_idx       = 0
+    last_frame      = None
+    last_overlay    = None
 
     print("Running — press 'q' to quit and save results.")
 
@@ -145,6 +170,13 @@ def main():
                         ray_dy=round(float(ray_dir[1]), 3),
                         ray_dz=round(float(ray_dir[2]), 3),
                     )
+                    ray_origins.append(origin)
+                    ray_directions.append(ray_dir)
+
+            if args.export_ply and frame_idx % _PLY_SAMPLE_INTERVAL == 0:
+                mesh_snapshots.append(
+                    landmarks_to_numpy(lms, frame_w, frame_h)
+                )
 
             # --- AOI ---
             row["active_aoi"] = aoi.track(frame, (gx, gy), ts)
@@ -189,17 +221,31 @@ def main():
     df.to_csv(csv_path, index=False)
     print(f"Saved {len(records)} frames → {csv_path}")
 
-    _print_summary(df, tracker.fixations)
+    summary = _print_summary(df, tracker.fixations, aoi)
+
+    summary_path = out / f"summary_{ts_str}.txt"
+    summary_path.write_text(summary)
+    print(f"Summary saved  → {summary_path}")
 
     if frame_idx > 0 and last_frame is not None:
         heatmap = render_heatmap(heat_acc)
         cv2.imwrite(str(out / f"heatmap_{ts_str}.jpg"), heatmap)
         if last_overlay is not None:
             cv2.imwrite(str(out / f"heatmap_overlay_{ts_str}.jpg"), last_overlay)
-        print(f"Heatmap saved → {out}/heatmap_{ts_str}.jpg")
+        print(f"Heatmap saved  → {out}/heatmap_{ts_str}.jpg")
 
-    aoi.print_summary()
+    if args.export_ply:
+        if mesh_snapshots:
+            mesh_path = out / f"face_mesh_{ts_str}.ply"
+            export_session_face_mesh(mesh_path, mesh_snapshots)
+            print(f"Face mesh PLY  → {mesh_path}  ({len(mesh_snapshots)} snapshots)")
 
+        if ray_origins:
+            origins    = np.array(ray_origins,    dtype=np.float32)
+            directions = np.array(ray_directions, dtype=np.float32)
+            traj_path  = out / f"gaze_trajectory_{ts_str}.ply"
+            export_gaze_trajectory(traj_path, origins, directions)
+            print(f"Gaze trajectory PLY → {traj_path}  ({len(origins)} points)")
 
 if __name__ == "__main__":
     main()
