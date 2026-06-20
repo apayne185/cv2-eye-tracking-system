@@ -60,7 +60,7 @@ def _draw_target(frame_w: int, frame_h: int,
     else:
         msg = f"Collecting  {progress}/{total}"
 
-    tw, _ = cv2.getTextSize(msg, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 1)[0], None
+    (tw, _th), _baseline = cv2.getTextSize(msg, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 1)
     cv2.putText(canvas, msg,
                 (frame_w // 2 - tw // 2, frame_h - 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 1)
@@ -86,6 +86,10 @@ class GazeCalibrator:
         self._reg_x: LinearRegression | None = None
         self._reg_y: LinearRegression | None = None
         self._fitted = False
+
+    @property
+    def is_fitted(self) -> bool:
+        return self._fitted
 
     # ------------------------------------------------------------------
     # Interactive collection
@@ -122,8 +126,13 @@ class GazeCalibrator:
             # ── collection phase ─────────────────────────────────────
             ratios_h: list[float] = []
             ratios_v: list[float] = []
+            t_collect_start = time.time()
+            _COLLECT_TIMEOUT = max(10.0, n_collect / 5.0)  # give up after N secs
 
             while len(ratios_h) < n_collect:
+                if time.time() - t_collect_start > _COLLECT_TIMEOUT:
+                    print(f"  Point {point_idx + 1}: timed out waiting for face — skipping.")
+                    break
                 ret, frame = cap.read()
                 if not ret:
                     break
@@ -218,12 +227,15 @@ class GazeCalibrator:
         path = Path(path)
         data = json.loads(path.read_text())
         obj = cls()
-        obj._reg_x = LinearRegression()
-        obj._reg_x.coef_      = np.array(data['coef_x'])
-        obj._reg_x.intercept_ = data['intercept_x']
-        obj._reg_y = LinearRegression()
-        obj._reg_y.coef_      = np.array(data['coef_y'])
-        obj._reg_y.intercept_ = data['intercept_y']
+        for attr, coef_key, intercept_key in [
+            ('_reg_x', 'coef_x', 'intercept_x'),
+            ('_reg_y', 'coef_y', 'intercept_y'),
+        ]:
+            reg = LinearRegression()
+            reg.coef_          = np.array(data[coef_key], dtype=np.float64)
+            reg.intercept_     = np.float64(data[intercept_key])
+            reg.n_features_in_ = reg.coef_.shape[0]  # required by sklearn >= 1.0
+            setattr(obj, attr, reg)
         obj._fitted = True
         return obj
 

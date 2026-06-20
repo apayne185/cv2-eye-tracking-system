@@ -103,49 +103,49 @@ def main():
         print(f"Error: cannot open source '{args.source}'")
         return
 
-    frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    tracker  = EyeTracker()
-    pose_est = HeadPoseEstimator(frame_w, frame_h)
-    aoi      = AOITracker()
-    dir_est  = GazeDirectionEstimator()
-
-    # --- calibration ---
-    calibrator = None
-    if args.calibrate:
-        print("Starting 5-point calibration — follow the dot with your eyes.")
-        calibrator = GazeCalibrator().run(cap, tracker, frame_w, frame_h)
-        if calibrator._fitted:
-            calib_path = calibrator.save()
-            print(f"Calibration saved → {calib_path}")
-    elif DEFAULT_CALIB_PATH.exists():
-        try:
-            calibrator = GazeCalibrator.load(DEFAULT_CALIB_PATH)
-            print(f"Loaded calibration from {DEFAULT_CALIB_PATH}")
-        except Exception as e:
-            print(f"Warning: could not load calibration ({e})")
-
-    zone_clf = None
-    if DEFAULT_MODEL_PATH.exists():
-        try:
-            zone_clf = GazeZoneClassifier.load(DEFAULT_MODEL_PATH)
-            print(f"Loaded zone classifier from {DEFAULT_MODEL_PATH}")
-        except Exception as e:
-            print(f"Warning: could not load zone classifier ({e})")
-
-    heat_acc        = make_accumulator(frame_h, frame_w)
-    records         = []
-    mesh_snapshots  = []   # sampled (N_lm, 3) arrays for PLY export
-    ray_origins     = []   # 3D ray origins per frame
-    ray_directions  = []   # 3D ray directions per frame
-    frame_idx       = 0
-    last_frame      = None
-    last_overlay    = None
-
-    print("Running — press 'q' to quit and save results.")
-
     try:
+        frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        tracker  = EyeTracker()
+        pose_est = HeadPoseEstimator(frame_w, frame_h)
+        aoi      = AOITracker()
+        dir_est  = GazeDirectionEstimator()
+
+        # --- calibration ---
+        calibrator = None
+        if args.calibrate:
+            print("Starting 5-point calibration — follow the dot with your eyes.")
+            calibrator = GazeCalibrator().run(cap, tracker, frame_w, frame_h)
+            if calibrator.is_fitted:
+                calib_path = calibrator.save()
+                print(f"Calibration saved → {calib_path}")
+        elif DEFAULT_CALIB_PATH.exists():
+            try:
+                calibrator = GazeCalibrator.load(DEFAULT_CALIB_PATH)
+                print(f"Loaded calibration from {DEFAULT_CALIB_PATH}")
+            except Exception as e:
+                print(f"Warning: could not load calibration ({e})")
+
+        zone_clf = None
+        if DEFAULT_MODEL_PATH.exists():
+            try:
+                zone_clf = GazeZoneClassifier.load(DEFAULT_MODEL_PATH)
+                print(f"Loaded zone classifier from {DEFAULT_MODEL_PATH}")
+            except Exception as e:
+                print(f"Warning: could not load zone classifier ({e})")
+
+        heat_acc        = make_accumulator(frame_h, frame_w)
+        records         = []
+        mesh_snapshots  = []
+        ray_origins     = []
+        ray_directions  = []
+        frame_idx       = 0
+        last_frame      = None
+        last_overlay    = None
+
+        print("Running — press 'q' to quit and save results.")
+
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
@@ -268,45 +268,47 @@ def main():
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 
+        # --- save outputs (still inside try so locals are in scope) ---
+        if not records:
+            return
+
+        ts_str = time.strftime("%Y%m%d_%H%M%S")
+        df     = pd.DataFrame(records)
+
+        csv_path = out / f"gaze_{ts_str}.csv"
+        df.to_csv(csv_path, index=False)
+        print(f"Saved {len(records)} frames → {csv_path}")
+
+        summary = _print_summary(df, tracker.fixations, aoi)
+
+        summary_path = out / f"summary_{ts_str}.txt"
+        summary_path.write_text(summary)
+        print(f"Summary saved  → {summary_path}")
+
+        if frame_idx > 0 and last_frame is not None:
+            heatmap = render_heatmap(heat_acc)
+            cv2.imwrite(str(out / f"heatmap_{ts_str}.jpg"), heatmap)
+            if last_overlay is not None:
+                cv2.imwrite(str(out / f"heatmap_overlay_{ts_str}.jpg"), last_overlay)
+            print(f"Heatmap saved  → {out}/heatmap_{ts_str}.jpg")
+
+        if args.export_ply:
+            if mesh_snapshots:
+                mesh_path = out / f"face_mesh_{ts_str}.ply"
+                export_session_face_mesh(mesh_path, mesh_snapshots)
+                print(f"Face mesh PLY  → {mesh_path}  ({len(mesh_snapshots)} snapshots)")
+
+            if ray_origins:
+                origins    = np.array(ray_origins,    dtype=np.float32)
+                directions = np.array(ray_directions, dtype=np.float32)
+                traj_path  = out / f"gaze_trajectory_{ts_str}.ply"
+                export_gaze_trajectory(traj_path, origins, directions)
+                print(f"Gaze trajectory PLY → {traj_path}  ({len(origins)} points)")
+
     finally:
         cap.release()
         cv2.destroyAllWindows()
 
-    if not records:
-        return
-
-    ts_str = time.strftime("%Y%m%d_%H%M%S")
-    df     = pd.DataFrame(records)
-
-    csv_path = out / f"gaze_{ts_str}.csv"
-    df.to_csv(csv_path, index=False)
-    print(f"Saved {len(records)} frames → {csv_path}")
-
-    summary = _print_summary(df, tracker.fixations, aoi)
-
-    summary_path = out / f"summary_{ts_str}.txt"
-    summary_path.write_text(summary)
-    print(f"Summary saved  → {summary_path}")
-
-    if frame_idx > 0 and last_frame is not None:
-        heatmap = render_heatmap(heat_acc)
-        cv2.imwrite(str(out / f"heatmap_{ts_str}.jpg"), heatmap)
-        if last_overlay is not None:
-            cv2.imwrite(str(out / f"heatmap_overlay_{ts_str}.jpg"), last_overlay)
-        print(f"Heatmap saved  → {out}/heatmap_{ts_str}.jpg")
-
-    if args.export_ply:
-        if mesh_snapshots:
-            mesh_path = out / f"face_mesh_{ts_str}.ply"
-            export_session_face_mesh(mesh_path, mesh_snapshots)
-            print(f"Face mesh PLY  → {mesh_path}  ({len(mesh_snapshots)} snapshots)")
-
-        if ray_origins:
-            origins    = np.array(ray_origins,    dtype=np.float32)
-            directions = np.array(ray_directions, dtype=np.float32)
-            traj_path  = out / f"gaze_trajectory_{ts_str}.ply"
-            export_gaze_trajectory(traj_path, origins, directions)
-            print(f"Gaze trajectory PLY → {traj_path}  ({len(origins)} points)")
 
 if __name__ == "__main__":
     main()
