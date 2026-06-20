@@ -104,6 +104,11 @@ class GazeCalibrator:
         collected: list[tuple[float, float, float, float]] = []
 
         cv2.namedWindow('Calibration', cv2.WINDOW_NORMAL)
+        # Show a blank frame first so X11 maps the window before the
+        # fullscreen hint is applied — setWindowProperty is silently
+        # ignored if called before the first imshow on Linux.
+        cv2.imshow('Calibration', np.zeros((frame_h, frame_w, 3), dtype=np.uint8))
+        cv2.waitKey(1)
         cv2.setWindowProperty('Calibration', cv2.WND_PROP_FULLSCREEN,
                               cv2.WINDOW_FULLSCREEN)
 
