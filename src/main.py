@@ -12,8 +12,16 @@ from gaze_analysis import make_accumulator, add_gaze_point, render_heatmap, gene
 from AOI import AOITracker
 from direction import GazeDirectionEstimator
 from face_mesh_3d import landmarks_to_numpy, export_session_face_mesh, export_gaze_trajectory
+from gaze_classifier import GazeZoneClassifier, DEFAULT_MODEL_PATH
 
 _PLY_SAMPLE_INTERVAL = 30  # save one face mesh snapshot per N frames
+
+# Colour coding for attention zone overlay
+_ZONE_COLORS = {
+    'on_screen':  (0, 200,   0),   # green
+    'peripheral': (0, 165, 255),   # orange
+    'away':       (0,   0, 255),   # red
+}
 
 
 def parse_args():
@@ -98,6 +106,14 @@ def main():
     aoi      = AOITracker()
     dir_est  = GazeDirectionEstimator()
 
+    zone_clf = None
+    if DEFAULT_MODEL_PATH.exists():
+        try:
+            zone_clf = GazeZoneClassifier.load(DEFAULT_MODEL_PATH)
+            print(f"Loaded zone classifier from {DEFAULT_MODEL_PATH}")
+        except Exception as e:
+            print(f"Warning: could not load zone classifier ({e})")
+
     heat_acc        = make_accumulator(frame_h, frame_w)
     records         = []
     mesh_snapshots  = []   # sampled (N_lm, 3) arrays for PLY export
@@ -128,6 +144,7 @@ def main():
                 ray_dx=None, ray_dy=None, ray_dz=None,
                 left_ear=None, right_ear=None,
                 is_blink=False, is_fixation=False, active_aoi=None,
+                predicted_zone=None,
             )
 
             if results.multi_face_landmarks:
@@ -157,6 +174,14 @@ def main():
                     dh, dv = dir_est.estimate(rh, rv, yaw, pitch)
                     row.update(dir_h=round(dh, 3), dir_v=round(dv, 3))
                     GazeDirectionEstimator.draw_direction_marker(frame, dh, dv)
+
+                    # --- attention zone classification ---
+                    if zone_clf is not None:
+                        zone = zone_clf.predict({
+                            'gaze_ratio_h': rh, 'gaze_ratio_v': rv,
+                            'yaw': yaw, 'dir_h': dh, 'dir_v': dv,
+                        })
+                        row['predicted_zone'] = zone
 
                     # --- 3D gaze ray ---
                     R = pose_est.rotation_matrix
@@ -195,6 +220,13 @@ def main():
                         frame, f"P:{pitch:.1f}  Y:{yaw:.1f}  R:{roll:.1f}",
                         (20, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1,
                     )
+                    zone = row.get('predicted_zone')
+                    if zone is not None:
+                        cv2.putText(
+                            frame, f"Zone: {zone}",
+                            (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                            _ZONE_COLORS.get(zone, (255, 255, 255)), 2,
+                        )
 
             records.append(row)
             last_frame = frame.copy()

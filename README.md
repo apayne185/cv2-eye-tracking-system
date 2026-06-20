@@ -103,6 +103,7 @@ AOI dwell (seconds):
 | `ray_ox`, `ray_oy`, `ray_oz` | 3D gaze ray origin (eye midpoint in camera coords, mm) |
 | `ray_dx`, `ray_dy`, `ray_dz` | 3D gaze ray unit direction vector in camera coords |
 | `active_aoi` | Name of active Area of Interest, or null |
+| `predicted_zone` | Attention zone predicted by the RF classifier: `on_screen` / `peripheral` / `away`. Populated only when `models/gaze_zone_classifier.joblib` exists (run `notebooks/classifier.ipynb` to generate it). |
 
 ---
 
