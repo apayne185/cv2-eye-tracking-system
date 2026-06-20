@@ -12,7 +12,7 @@ DEFAULT_AOIS = {
 
 class AOITracker:
     def __init__(self, aois=None):
-        self.aois       = aois or DEFAULT_AOIS
+        self.aois = aois or DEFAULT_AOIS
         self.time_spent = defaultdict(float)
         self._last_ts   = None
 

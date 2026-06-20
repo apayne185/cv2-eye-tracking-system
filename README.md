@@ -40,7 +40,9 @@ conda activate eyetrack
 pip install -r requirements.txt
 ```
 
-**Requirements:** Python 3.11, opencv-python, numpy, mediapipe, pandas
+**Requirements:** Python 3.11+, opencv-python, numpy, mediapipe, pandas, scipy
+
+**Windows note:** tested on Windows 11 with Python 3.12. The conda env is recommended — a `pytest.ini` is included that suppresses a known conflict between the `dash` pytest plugin and mediapipe's DLL initialisation on Windows.
 
 ---
 
@@ -72,15 +74,18 @@ Press **`q`** to quit — the session CSV and heatmap are saved automatically.
 ### Session summary (printed on exit and saved to `summary_<timestamp>.txt`)
 ```
 --- Session Summary ---
-Frames recorded:  1842
-Blinks detected:  12
-Fixation frames:  1104  (59.9%)
-Fixations:        38  avg=0.31s  max=1.74s
+Frames recorded:  2500
+Blinks detected:  124
+Fixation frames:  438  (17.5%)
+Fixations:        39  avg=0.20s  max=0.65s
 
 AOI dwell (frames):
-  Center: 812  (44.1%)
-  Left:   391  (21.2%)
-  Right:  201  (10.9%)
+  Center: 2158  (86.3%)
+  Left:   120   (4.8%)
+
+AOI dwell (seconds):
+  Center: 78.77s
+  Left:    4.14s
 ```
 
 ### CSV schema
@@ -123,7 +128,15 @@ cv2-eye-tracking-system/
 │   ├── test_gaze_analysis.py    # Heatmap accumulator unit tests
 │   ├── test_face_mesh_3d.py     # PLY export unit tests
 │   └── test_gaze_classifier.py  # Classifier training, inference, persistence
+│   ├── conftest.py         # sys.path setup for src/ imports
+│   ├── test_direction.py   # Direction estimator unit tests
+│   ├── test_fixation.py    # Fixation state machine unit tests
+│   ├── test_face_mesh_3d.py   # PLY export unit tests
+│   └── test_gaze_analysis.py  # Heatmap accumulator unit tests
+├── data/                   # Session output (CSV, heatmap, summary) — gitignored
 ├── eye_gaze_heatmap.jpg    # Sample heatmap output
+├── pytest.ini              # Disables dash plugin (Windows mediapipe compatibility)
+├── environment.yml         # conda env (Python 3.11, eyetrack)
 ├── requirements.txt
 └── README.md
 ```
@@ -183,3 +196,5 @@ conda activate eyetrack
 pip install pytest
 pytest tests/ -v
 ```
+
+29 tests across direction estimation, face mesh export, fixation detection, and heatmap accumulation.
