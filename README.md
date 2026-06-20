@@ -20,6 +20,7 @@ Real-time eye tracking pipeline built with Python, OpenCV, and MediaPipe FaceMes
 | **Fixation detection** | Velocity-based classifier: gaze velocity < 25 px/s for ≥ 100 ms = fixation. Completed fixations logged with duration and position. |
 | **AOI tracking** | Configurable rectangular Areas of Interest with per-AOI dwell time accumulation. |
 | **Heatmap overlay** | Gaussian-blurred JET colormap overlaid on the live frame. |
+| **Gaze attention classifier** | sklearn Random Forest trained on 5 gaze features → predicts `on_screen` / `peripheral` / `away` with >95% CV accuracy. Demonstrated in `notebooks/classifier.ipynb`. |
 | **CSV export** | Per-frame record saved to `data/gaze_<timestamp>.csv` on exit. |
 
 ---
@@ -119,8 +120,14 @@ cv2-eye-tracking-system/
 │   ├── AOI.py              # AOITracker class with dwell-time accumulation
 │   └── old_work/           # Legacy scripts (reference only)
 ├── notebooks/
-│   └── analysis.ipynb      # Offline session analysis — plots, heatmap, stats
+│   ├── analysis.ipynb      # Offline session analysis — plots, heatmap, stats
+│   └── classifier.ipynb    # ML training pipeline — RF vs SVM vs MLP, CV, confusion matrix
 ├── tests/
+│   ├── test_direction.py        # Direction estimator unit tests
+│   ├── test_fixation.py         # Fixation state machine unit tests
+│   ├── test_gaze_analysis.py    # Heatmap accumulator unit tests
+│   ├── test_face_mesh_3d.py     # PLY export unit tests
+│   └── test_gaze_classifier.py  # Classifier training, inference, persistence
 │   ├── conftest.py         # sys.path setup for src/ imports
 │   ├── test_direction.py   # Direction estimator unit tests
 │   ├── test_fixation.py    # Fixation state machine unit tests
@@ -165,6 +172,20 @@ jupyter lab notebooks/analysis.ipynb
 ```
 
 The notebook auto-loads the most recent `data/gaze_*.csv`. Set `CSV_PATH` manually to analyse a specific session. Produces: gaze scatter, EAR/blink plot, fixation timeline, head yaw, AOI dwell, and gaze heatmap.
+
+### Gaze attention classifier
+
+```bash
+conda activate eyetrack
+jupyter lab notebooks/classifier.ipynb
+```
+
+Trains a Random Forest on synthetic gaze data (1800 samples, 3 classes) and demonstrates:
+- Feature distribution visualisation
+- Train/test split with classification report
+- 5-fold cross-validation vs SVM and MLP
+- Confusion matrix and feature importances
+- Applying the model to a real session CSV (Section 7)
 
 ---
 
