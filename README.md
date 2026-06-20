@@ -21,6 +21,7 @@ Real-time eye tracking pipeline built with Python, OpenCV, and MediaPipe FaceMes
 | **AOI tracking** | Configurable rectangular Areas of Interest with per-AOI dwell time accumulation. |
 | **Heatmap overlay** | Gaussian-blurred JET colormap overlaid on the live frame. |
 | **Gaze attention classifier** | sklearn Random Forest trained on 5 gaze features → predicts `on_screen` / `peripheral` / `away` with >95% CV accuracy. Demonstrated in `notebooks/classifier.ipynb`. |
+| **5-point gaze calibration** | `--calibrate` displays fixation targets, collects per-user iris ratio samples, and fits a `LinearRegression` mapping iris space → screen space. Saved to `models/calibration.json` and auto-loaded on subsequent runs. |
 | **CSV export** | Per-frame record saved to `data/gaze_<timestamp>.csv` on exit. |
 
 ---
@@ -63,6 +64,9 @@ python src/main.py --source 0 --output-dir results/
 
 # Export PLY point clouds (face mesh + gaze trajectory)
 python src/main.py --source 0 --export-ply
+
+# Run 5-point calibration before the session (saves to models/)
+python src/main.py --source 0 --calibrate
 ```
 
 Press **`q`** to quit — the session CSV and heatmap are saved automatically.
@@ -118,6 +122,8 @@ cv2-eye-tracking-system/
 │   ├── direction.py        # GazeDirectionEstimator: 2D direction + 3D gaze ray
 │   ├── face_mesh_3d.py     # PLY point cloud export: face mesh + gaze trajectory
 │   ├── gaze_analysis.py    # Heatmap accumulator and renderer
+│   ├── gaze_classifier.py  # GazeZoneClassifier: sklearn RF pipeline
+│   ├── calibration.py      # GazeCalibrator: 5-point linear calibration
 │   ├── AOI.py              # AOITracker class with dwell-time accumulation
 │   └── old_work/           # Legacy scripts (reference only)
 ├── notebooks/
