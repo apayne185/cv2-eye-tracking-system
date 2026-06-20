@@ -27,20 +27,25 @@ MIN_FIXATION_SECS        = 0.10
 
 class EyeTracker:
     def __init__(self):
-        self._mesh = mp.solutions.face_mesh.FaceMesh(
-            max_num_faces=1,
-            refine_landmarks=True,          # unlocks iris landmarks 468-477
-            min_detection_confidence=0.7,
-            min_tracking_confidence=0.7,
-        )
+        self._mesh      = None  # lazy: created on first process() call
         self._prev_gaze = None
         self._prev_ts   = None
         self._fix_start = None
         self._fixating  = False
         self.fixations  = []               # list of completed fixation dicts
 
+    def _get_mesh(self):
+        if self._mesh is None:
+            self._mesh = mp.solutions.face_mesh.FaceMesh(
+                max_num_faces=1,
+                refine_landmarks=True,      # unlocks iris landmarks 468-477
+                min_detection_confidence=0.7,
+                min_tracking_confidence=0.7,
+            )
+        return self._mesh
+
     def process(self, frame):
-        return self._mesh.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        return self._get_mesh().process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
     def get_iris_gaze(self, lms, shape):
         """

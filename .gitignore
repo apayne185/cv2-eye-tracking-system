@@ -7,3 +7,4 @@ data/
 *.DS_Store
 .pytest_cache/
 models/
+condaenv.*.requirements.txt
