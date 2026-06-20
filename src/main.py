@@ -109,107 +109,110 @@ def main():
 
     print("Running — press 'q' to quit and save results.")
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+    try:
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        ts      = time.time()
-        results = tracker.process(frame)
+            ts       = time.time()
+            is_blink = False
+            results  = tracker.process(frame)
 
-        row = dict(
-            frame=frame_idx, timestamp=round(ts, 4),
-            gaze_x=None, gaze_y=None, gaze_ratio_h=None, gaze_ratio_v=None,
-            pitch=None, yaw=None, roll=None,
-            dir_h=None, dir_v=None,
-            ray_ox=None, ray_oy=None, ray_oz=None,
-            ray_dx=None, ray_dy=None, ray_dz=None,
-            left_ear=None, right_ear=None,
-            is_blink=False, is_fixation=False, active_aoi=None,
-        )
+            row = dict(
+                frame=frame_idx, timestamp=round(ts, 4),
+                gaze_x=None, gaze_y=None, gaze_ratio_h=None, gaze_ratio_v=None,
+                pitch=None, yaw=None, roll=None,
+                dir_h=None, dir_v=None,
+                ray_ox=None, ray_oy=None, ray_oz=None,
+                ray_dx=None, ray_dy=None, ray_dz=None,
+                left_ear=None, right_ear=None,
+                is_blink=False, is_fixation=False, active_aoi=None,
+            )
 
-        if results.multi_face_landmarks:
-            lms = results.multi_face_landmarks[0]
+            if results.multi_face_landmarks:
+                lms = results.multi_face_landmarks[0]
 
-            # --- iris-based gaze ---
-            gx, gy, rh, rv = tracker.get_iris_gaze(lms, frame.shape)
-            row.update(gaze_x=gx, gaze_y=gy,
-                       gaze_ratio_h=round(rh, 3), gaze_ratio_v=round(rv, 3))
-            add_gaze_point(heat_acc, gx, gy)
+                # --- iris-based gaze ---
+                gx, gy, rh, rv = tracker.get_iris_gaze(lms, frame.shape)
+                row.update(gaze_x=gx, gaze_y=gy,
+                           gaze_ratio_h=round(rh, 3), gaze_ratio_v=round(rv, 3))
+                add_gaze_point(heat_acc, gx, gy)
 
-            # --- fixation ---
-            row["is_fixation"] = tracker.update_fixation((gx, gy), ts)
+                # --- fixation ---
+                row["is_fixation"] = tracker.update_fixation((gx, gy), ts)
 
-            # --- blink / EAR ---
-            is_blink, l_ear, r_ear = tracker.detect_blink(lms, frame.shape)
-            row.update(is_blink=is_blink,
-                       left_ear=round(l_ear, 3), right_ear=round(r_ear, 3))
+                # --- blink / EAR ---
+                is_blink, l_ear, r_ear = tracker.detect_blink(lms, frame.shape)
+                row.update(is_blink=is_blink,
+                           left_ear=round(l_ear, 3), right_ear=round(r_ear, 3))
 
-            # --- head pose ---
-            pitch, yaw, roll = pose_est.estimate(lms, frame.shape)
-            if pitch is not None:
-                row.update(pitch=round(pitch, 1), yaw=round(yaw, 1), roll=round(roll, 1))
+                # --- head pose ---
+                pitch, yaw, roll = pose_est.estimate(lms, frame.shape)
+                if pitch is not None:
+                    row.update(pitch=round(pitch, 1), yaw=round(yaw, 1), roll=round(roll, 1))
 
-            # --- gaze direction (iris + head pose) ---
-            if pitch is not None:
-                dh, dv = dir_est.estimate(rh, rv, yaw, pitch)
-                row.update(dir_h=round(dh, 3), dir_v=round(dv, 3))
-                GazeDirectionEstimator.draw_direction_marker(frame, dh, dv)
+                # --- gaze direction (iris + head pose) ---
+                if pitch is not None:
+                    dh, dv = dir_est.estimate(rh, rv, yaw, pitch)
+                    row.update(dir_h=round(dh, 3), dir_v=round(dv, 3))
+                    GazeDirectionEstimator.draw_direction_marker(frame, dh, dv)
 
-                # --- 3D gaze ray ---
-                R = pose_est.rotation_matrix
-                t = pose_est.translation_vector
-                if R is not None:
-                    origin, ray_dir = dir_est.gaze_ray_3d(rh, rv, R, t)
-                    pose_est.draw_gaze_ray(frame, origin, ray_dir)
-                    row.update(
-                        ray_ox=round(float(origin[0]),  1),
-                        ray_oy=round(float(origin[1]),  1),
-                        ray_oz=round(float(origin[2]),  1),
-                        ray_dx=round(float(ray_dir[0]), 3),
-                        ray_dy=round(float(ray_dir[1]), 3),
-                        ray_dz=round(float(ray_dir[2]), 3),
+                    # --- 3D gaze ray ---
+                    R = pose_est.rotation_matrix
+                    t = pose_est.translation_vector
+                    if R is not None:
+                        origin, ray_dir = dir_est.gaze_ray_3d(rh, rv, R, t)
+                        pose_est.draw_gaze_ray(frame, origin, ray_dir)
+                        row.update(
+                            ray_ox=round(float(origin[0]),  1),
+                            ray_oy=round(float(origin[1]),  1),
+                            ray_oz=round(float(origin[2]),  1),
+                            ray_dx=round(float(ray_dir[0]), 3),
+                            ray_dy=round(float(ray_dir[1]), 3),
+                            ray_dz=round(float(ray_dir[2]), 3),
+                        )
+                        ray_origins.append(origin)
+                        ray_directions.append(ray_dir)
+
+                if args.export_ply and frame_idx % _PLY_SAMPLE_INTERVAL == 0:
+                    mesh_snapshots.append(
+                        landmarks_to_numpy(lms, frame_w, frame_h)
                     )
-                    ray_origins.append(origin)
-                    ray_directions.append(ray_dir)
 
-            if args.export_ply and frame_idx % _PLY_SAMPLE_INTERVAL == 0:
-                mesh_snapshots.append(
-                    landmarks_to_numpy(lms, frame_w, frame_h)
-                )
+                # --- AOI ---
+                row["active_aoi"] = aoi.track(frame, (gx, gy), ts)
 
-            # --- AOI ---
-            row["active_aoi"] = aoi.track(frame, (gx, gy), ts)
+                # --- draw overlays ---
+                tracker.draw_overlays(frame, lms)
+                pose_est.draw_axes(frame)
 
-            # --- draw overlays ---
-            tracker.draw_overlays(frame, lms)
-            pose_est.draw_axes(frame)
+                label = "BLINK" if is_blink else _gaze_label(rh, rv)
+                color = (0, 0, 255) if is_blink else (0, 255, 0)
+                cv2.putText(frame, label, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
+                if pitch is not None:
+                    cv2.putText(
+                        frame, f"P:{pitch:.1f}  Y:{yaw:.1f}  R:{roll:.1f}",
+                        (20, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1,
+                    )
 
-            label = "BLINK" if is_blink else _gaze_label(rh, rv)
-            color = (0, 0, 255) if is_blink else (0, 255, 0)
-            cv2.putText(frame, label, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
-            if pitch is not None:
-                cv2.putText(
-                    frame, f"P:{pitch:.1f}  Y:{yaw:.1f}  R:{roll:.1f}",
-                    (20, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1,
-                )
+            records.append(row)
+            last_frame = frame.copy()
 
-        records.append(row)
-        last_frame = frame.copy()
+            if frame_idx > 10:
+                heatmap      = render_heatmap(heat_acc)
+                last_overlay = cv2.addWeighted(frame, 0.6, heatmap, 0.4, 0)
+                cv2.imshow("Eye Tracker", last_overlay)
+            else:
+                cv2.imshow("Eye Tracker", frame)
 
-        if frame_idx > 10:
-            heatmap      = render_heatmap(heat_acc)
-            last_overlay = cv2.addWeighted(frame, 0.6, heatmap, 0.4, 0)
-            cv2.imshow("Eye Tracker", last_overlay)
-        else:
-            cv2.imshow("Eye Tracker", frame)
+            frame_idx += 1
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
 
-        frame_idx += 1
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
 
     if not records:
         return
