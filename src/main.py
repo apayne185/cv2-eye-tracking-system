@@ -13,6 +13,7 @@ from AOI import AOITracker
 from direction import GazeDirectionEstimator
 from face_mesh_3d import landmarks_to_numpy, export_session_face_mesh, export_gaze_trajectory
 from gaze_classifier import GazeZoneClassifier, DEFAULT_MODEL_PATH
+from calibration import GazeCalibrator, DEFAULT_CALIB_PATH
 
 _PLY_SAMPLE_INTERVAL = 30  # save one face mesh snapshot per N frames
 
@@ -37,6 +38,10 @@ def parse_args():
     p.add_argument(
         "--export-ply", action="store_true",
         help="Export face mesh and gaze trajectory as PLY point clouds on exit",
+    )
+    p.add_argument(
+        "--calibrate", action="store_true",
+        help="Run 5-point gaze calibration before starting the session",
     )
     return p.parse_args()
 
@@ -106,6 +111,21 @@ def main():
     aoi      = AOITracker()
     dir_est  = GazeDirectionEstimator()
 
+    # --- calibration ---
+    calibrator = None
+    if args.calibrate:
+        print("Starting 5-point calibration — follow the dot with your eyes.")
+        calibrator = GazeCalibrator().run(cap, tracker, frame_w, frame_h)
+        if calibrator._fitted:
+            calib_path = calibrator.save()
+            print(f"Calibration saved → {calib_path}")
+    elif DEFAULT_CALIB_PATH.exists():
+        try:
+            calibrator = GazeCalibrator.load(DEFAULT_CALIB_PATH)
+            print(f"Loaded calibration from {DEFAULT_CALIB_PATH}")
+        except Exception as e:
+            print(f"Warning: could not load calibration ({e})")
+
     zone_clf = None
     if DEFAULT_MODEL_PATH.exists():
         try:
@@ -174,6 +194,12 @@ def main():
                     dh, dv = dir_est.estimate(rh, rv, yaw, pitch)
                     row.update(dir_h=round(dh, 3), dir_v=round(dv, 3))
                     GazeDirectionEstimator.draw_direction_marker(frame, dh, dv)
+
+                    # --- calibrated screen point ---
+                    if calibrator is not None:
+                        cx, cy = calibrator.to_screen_point(rh, rv, frame_w, frame_h)
+                        cv2.drawMarker(frame, (cx, cy), (255, 100, 0),
+                                       cv2.MARKER_CROSS, 20, 2)
 
                     # --- attention zone classification ---
                     if zone_clf is not None:
