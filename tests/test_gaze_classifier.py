@@ -35,6 +35,13 @@ def test_generate_training_data_dtype():
     assert X.dtype == np.float32
 
 
+def test_generate_training_data_odd_n_per_class():
+    """n//2 + n//2 = n-1 when n is odd — must not raise IndexError."""
+    X, y = generate_training_data(n_per_class=31)
+    assert X.shape == (93, 5)
+    assert y.shape == (93,)
+
+
 def test_generate_training_data_reproducible():
     X1, y1 = generate_training_data(seed=7)
     X2, y2 = generate_training_data(seed=7)

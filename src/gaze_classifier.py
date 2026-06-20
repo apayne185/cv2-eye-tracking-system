@@ -33,7 +33,8 @@ def generate_training_data(n_per_class: int = 600,
     Returns X (N, 5) float32 and y (N,) string label array.
     """
     rng = np.random.default_rng(seed)
-    rows, labels = [], []
+    rows: list[np.ndarray] = []
+    labels: list[str] = []
 
     def _fused(ratio_h, ratio_v, yaw, pitch):
         """Replicates GazeDirectionEstimator.estimate() for label generation."""
@@ -49,38 +50,35 @@ def generate_training_data(n_per_class: int = 600,
     yaw   = rng.normal(0,  8, n).clip(-22,  22)
     pitch = rng.normal(5,  5, n).clip(-12,  18)
     dh, dv = _fused(rh, rv, yaw, pitch)
-    for i in range(n):
-        rows.append([rh[i], rv[i], yaw[i], dh[i], dv[i]])
-        labels.append('on_screen')
+    rows.append(np.stack([rh, rv, yaw, dh, dv], axis=1))
+    labels.extend(['on_screen'] * n)
 
     # --- peripheral ---
-    rh_l  = rng.uniform(0.25, 0.38, n // 2)
-    rh_r  = rng.uniform(0.62, 0.75, n // 2)
-    rh    = np.concatenate([rh_l, rh_r])
+    # Explicit full-length halves avoid the n//2+n//2 = n-1 trap on odd n
+    half = n // 2
+    rh = np.concatenate([rng.uniform(0.25, 0.38, half),
+                         rng.uniform(0.62, 0.75, n - half)])
     rng.shuffle(rh)
     rv    = rng.normal(0.46, 0.09, n).clip(0.20, 0.76)
     yaw   = rng.uniform(-45, 45, n)
     pitch = rng.normal(0, 10, n).clip(-25, 25)
     dh, dv = _fused(rh, rv, yaw, pitch)
-    for i in range(n):
-        rows.append([rh[i], rv[i], yaw[i], dh[i], dv[i]])
-        labels.append('peripheral')
+    rows.append(np.stack([rh, rv, yaw, dh, dv], axis=1))
+    labels.extend(['peripheral'] * n)
 
     # --- away ---
-    rh_l  = rng.uniform(0.05, 0.24, n // 2)
-    rh_r  = rng.uniform(0.76, 0.95, n // 2)
-    rh    = np.concatenate([rh_l, rh_r])
+    rh = np.concatenate([rng.uniform(0.05, 0.24, half),
+                         rng.uniform(0.76, 0.95, n - half)])
     rng.shuffle(rh)
     rv    = rng.uniform(0.05, 0.95, n)
     yaw_m = rng.uniform(42, 62, n)
     yaw   = yaw_m * rng.choice([-1, 1], n)
     pitch = rng.uniform(-30, 30, n)
     dh, dv = _fused(rh, rv, yaw, pitch)
-    for i in range(n):
-        rows.append([rh[i], rv[i], yaw[i], dh[i], dv[i]])
-        labels.append('away')
+    rows.append(np.stack([rh, rv, yaw, dh, dv], axis=1))
+    labels.extend(['away'] * n)
 
-    X = np.array(rows, dtype=np.float32)
+    X = np.vstack(rows).astype(np.float32)
     y = np.array(labels)
     # Shuffle so classes are not contiguous
     idx = rng.permutation(len(X))
