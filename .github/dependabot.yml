@@ -16,6 +16,14 @@ updates:
       # and Python 3.11 wheels; upgrading needs a migration to the Tasks API.
       - dependency-name: mediapipe
 
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "ci"
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
