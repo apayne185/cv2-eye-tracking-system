@@ -1,5 +1,10 @@
 # Eye Tracking System with OpenCV and MediaPipe
 
+[![CI](https://github.com/apayne185/cv2-eye-tracking-system/actions/workflows/ci.yml/badge.svg)](https://github.com/apayne185/cv2-eye-tracking-system/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/apayne185/cv2-eye-tracking-system/actions/workflows/codeql.yml/badge.svg)](https://github.com/apayne185/cv2-eye-tracking-system/actions/workflows/codeql.yml)
+![Python 3.11](https://img.shields.io/badge/python-3.11-blue)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 Real-time eye tracking pipeline built with Python, OpenCV, and MediaPipe FaceMesh. Tracks iris position, estimates head pose in 3D, detects fixations and blinks, maps gaze to Areas of Interest, and exports per-frame metrics to CSV for offline analysis.
 
 ## Demo
@@ -21,6 +26,7 @@ Real-time eye tracking pipeline built with Python, OpenCV, and MediaPipe FaceMes
 | **AOI tracking** | Configurable rectangular Areas of Interest with per-AOI dwell time accumulation. |
 | **Heatmap overlay** | Gaussian-blurred JET colormap overlaid on the live frame. |
 | **Gaze attention classifier** | sklearn Random Forest trained on 5 gaze features → predicts `on_screen` / `peripheral` / `away` with >95% CV accuracy. Demonstrated in `notebooks/classifier.ipynb`. |
+| **5-point gaze calibration** | `--calibrate` displays fixation targets, collects per-user iris ratio samples, and fits a `LinearRegression` mapping iris space → screen space. Saved to `models/calibration.json` and auto-loaded on subsequent runs. |
 | **CSV export** | Per-frame record saved to `data/gaze_<timestamp>.csv` on exit. |
 
 ---
@@ -37,12 +43,14 @@ conda activate eyetrack
 
 **pip / venv:**
 ```bash
-pip install -r requirements.txt
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt        # runtime only
+pip install -r requirements-dev.txt    # + pytest, ruff, pre-commit, jupyterlab
 ```
 
-**Requirements:** Python 3.11+, opencv-python, numpy, mediapipe, pandas, scipy
+**Requirements:** Python 3.11 (mediapipe 0.10.9 has no wheels for 3.12+). All versions are pinned in `requirements.txt`.
 
-**Windows note:** tested on Windows 11 with Python 3.12. The conda env is recommended — a `pytest.ini` is included that suppresses a known conflict between the `dash` pytest plugin and mediapipe's DLL initialisation on Windows.
+**Windows note:** tested on Windows 11. The conda env is recommended — a `pytest.ini` is included that suppresses a known conflict between the `dash` pytest plugin and mediapipe's DLL initialisation on Windows.
 
 ---
 
@@ -63,6 +71,9 @@ python src/main.py --source 0 --output-dir results/
 
 # Export PLY point clouds (face mesh + gaze trajectory)
 python src/main.py --source 0 --export-ply
+
+# Run 5-point calibration before the session (saves to models/)
+python src/main.py --source 0 --calibrate
 ```
 
 Press **`q`** to quit — the session CSV and heatmap are saved automatically.
@@ -103,6 +114,7 @@ AOI dwell (seconds):
 | `ray_ox`, `ray_oy`, `ray_oz` | 3D gaze ray origin (eye midpoint in camera coords, mm) |
 | `ray_dx`, `ray_dy`, `ray_dz` | 3D gaze ray unit direction vector in camera coords |
 | `active_aoi` | Name of active Area of Interest, or null |
+| `predicted_zone` | Attention zone predicted by the RF classifier: `on_screen` / `peripheral` / `away`. Populated only when `models/gaze_zone_classifier.joblib` exists (run `notebooks/classifier.ipynb` to generate it). |
 
 ---
 
@@ -110,35 +122,33 @@ AOI dwell (seconds):
 
 ```
 cv2-eye-tracking-system/
+├── .github/
+│   ├── workflows/ci.yml     # Lint (ruff) + tests with coverage on every push/PR
+│   ├── workflows/codeql.yml # CodeQL security scanning
+│   └── dependabot.yml       # Weekly dependency updates (pip, Actions, pre-commit)
 ├── src/
-│   ├── main.py             # Entry point — argparse, main loop, CSV export
-│   ├── eye_tracker.py      # EyeTracker class: iris gaze, EAR blink, fixation
-│   ├── head_pose.py        # HeadPoseEstimator: solvePnP, draw_axes, gaze ray
-│   ├── direction.py        # GazeDirectionEstimator: 2D direction + 3D gaze ray
-│   ├── face_mesh_3d.py     # PLY point cloud export: face mesh + gaze trajectory
-│   ├── gaze_analysis.py    # Heatmap accumulator and renderer
-│   ├── AOI.py              # AOITracker class with dwell-time accumulation
-│   └── old_work/           # Legacy scripts (reference only)
+│   ├── main.py              # Entry point — argparse, main loop, CSV export
+│   ├── eye_tracker.py       # EyeTracker class: iris gaze, EAR blink, fixation
+│   ├── head_pose.py         # HeadPoseEstimator: solvePnP, draw_axes, gaze ray
+│   ├── direction.py         # GazeDirectionEstimator: 2D direction + 3D gaze ray
+│   ├── face_mesh_3d.py      # PLY point cloud export: face mesh + gaze trajectory
+│   ├── gaze_analysis.py     # Heatmap accumulator and renderer
+│   ├── gaze_classifier.py   # GazeZoneClassifier: sklearn RF pipeline
+│   ├── calibration.py       # GazeCalibrator: 5-point linear calibration
+│   └── AOI.py               # AOITracker class with dwell-time accumulation
 ├── notebooks/
-│   ├── analysis.ipynb      # Offline session analysis — plots, heatmap, stats
-│   └── classifier.ipynb    # ML training pipeline — RF vs SVM vs MLP, CV, confusion matrix
-├── tests/
-│   ├── test_direction.py        # Direction estimator unit tests
-│   ├── test_fixation.py         # Fixation state machine unit tests
-│   ├── test_gaze_analysis.py    # Heatmap accumulator unit tests
-│   ├── test_face_mesh_3d.py     # PLY export unit tests
-│   └── test_gaze_classifier.py  # Classifier training, inference, persistence
-│   ├── conftest.py         # sys.path setup for src/ imports
-│   ├── test_direction.py   # Direction estimator unit tests
-│   ├── test_fixation.py    # Fixation state machine unit tests
-│   ├── test_face_mesh_3d.py   # PLY export unit tests
-│   └── test_gaze_analysis.py  # Heatmap accumulator unit tests
-├── data/                   # Session output (CSV, heatmap, summary) — gitignored
-├── eye_gaze_heatmap.jpg    # Sample heatmap output
-├── pytest.ini              # Disables dash plugin (Windows mediapipe compatibility)
-├── environment.yml         # conda env (Python 3.11, eyetrack)
-├── requirements.txt
-└── README.md
+│   ├── analysis.ipynb       # Offline session analysis — plots, heatmap, stats
+│   └── classifier.ipynb     # ML training pipeline — RF vs SVM vs MLP, CV, confusion matrix
+├── tests/                   # pytest suite (conftest.py adds src/ to sys.path)
+├── data/                    # Session output (CSV, heatmap, summary) — gitignored
+├── models/                  # Trained classifier + calibration — gitignored
+├── eye_gaze_heatmap.jpg     # Sample heatmap output
+├── pyproject.toml           # ruff + coverage config
+├── pytest.ini               # Disables dash plugin (Windows mediapipe compatibility)
+├── .pre-commit-config.yaml
+├── environment.yml          # conda env (Python 3.11) built from requirements files
+├── requirements.txt         # Pinned runtime dependencies
+└── requirements-dev.txt     # Test, lint, and notebook tooling
 ```
 
 ---
@@ -155,7 +165,7 @@ The earlier approach averaged the positions of all eye *outline* landmarks, whic
 The velocity threshold (25 px/s) follows the I-VT (Identification by Velocity Threshold) algorithm common in psychophysics research. Saccades typically exceed 300 px/s; the threshold is conservative to reduce noise from head micro-movements.
 
 **Gaze direction fusion**  
-Iris ratios alone are relative to the eye socket — they correctly detect eye movement but are blind to head rotation. `solvePnP` yaw and pitch capture head orientation but ignore where the eyes point within the socket. `GazeDirectionEstimator` linearly combines both signals: `dir_h = iris_deviation * EYE_SCALE + yaw * HEAD_SCALE`. The weights are empirically tuned; a calibration step (mapping known gaze targets to measured ratios) would improve absolute accuracy.
+Iris ratios alone are relative to the eye socket — they correctly detect eye movement but are blind to head rotation. `solvePnP` yaw and pitch capture head orientation but ignore where the eyes point within the socket. `GazeDirectionEstimator` linearly combines both signals: `dir_h = iris_deviation * EYE_SCALE + yaw * HEAD_SCALE`. The weights are empirically tuned; run `--calibrate` to fit a per-user `LinearRegression` that maps iris ratios to screen coordinates, improving absolute accuracy.
 
 **PLY point clouds and the gaze trajectory**  
 The face mesh export writes MediaPipe's 478 per-landmark 3D coordinates (x, y in pixel space; z at the same relative scale) as a binary PLY file — the format used by depth cameras, LiDAR scanners, and 3D reconstruction pipelines. The gaze trajectory cloud projects each session's 3D gaze rays onto a virtual plane at 500 mm depth, producing a spatial map of where the subject's attention landed. Both files can be opened directly in MeshLab, CloudCompare, or Open3D for inspection.
@@ -189,12 +199,18 @@ Trains a Random Forest on synthetic gaze data (1800 samples, 3 classes) and demo
 
 ---
 
-## Running the tests
+## Development
 
 ```bash
-conda activate eyetrack
-pip install pytest
-pytest tests/ -v
+pip install -r requirements-dev.txt
+pre-commit install          # run ruff + hygiene checks on every commit
+
+ruff check src tests        # lint
+pytest --cov                # 74 tests with coverage report
 ```
 
-29 tests across direction estimation, face mesh export, fixation detection, and heatmap accumulation.
+The suite covers direction estimation, head pose (solvePnP round-trip), fixation detection, AOI dwell time, heatmap accumulation, PLY export, calibration, and the gaze classifier. The webcam loop in `main.py` is exercised manually.
+
+### Continuous integration
+
+Every push and pull request runs `ruff` and the full test suite on GitHub Actions (Ubuntu, Python 3.11), with a coverage table in the job summary. CodeQL scans for security issues weekly and on PRs. Dependabot opens grouped weekly PRs for Python packages, GitHub Actions, and pre-commit hooks; `mediapipe` is held at 0.10.9 because later releases remove the `mp.solutions` FaceMesh API.

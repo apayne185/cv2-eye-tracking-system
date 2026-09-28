@@ -1,3 +1,5 @@
+import numpy as np
+
 from direction import GazeDirectionEstimator
 
 
@@ -48,8 +50,6 @@ def test_to_screen_point_full_left_is_zero():
 
 
 # --- 3D gaze ray tests ---
-
-import numpy as np
 
 
 def test_ray_direction_is_unit_vector():

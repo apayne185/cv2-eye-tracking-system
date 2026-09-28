@@ -1,0 +1,6 @@
+-r requirements.txt
+pytest==9.0.3
+pytest-cov==7.1.0
+ruff==0.15.17
+pre-commit==4.6.2
+jupyterlab==4.5.8

@@ -1,0 +1,18 @@
+[project]
+name = "cv2-eye-tracking-system"
+version = "0.1.0"
+description = "Real-time eye tracking with OpenCV and MediaPipe FaceMesh"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+
+[tool.ruff]
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["src/old_work", "notebooks"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/old_work/*"]

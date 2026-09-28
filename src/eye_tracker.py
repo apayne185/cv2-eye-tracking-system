@@ -15,10 +15,14 @@ _LEFT_IRIS  = 468
 _RIGHT_IRIS = 473
 
 # Eye corner references for gaze ratio
-_LEFT_OUTER  = 33;  _LEFT_INNER  = 133
-_RIGHT_INNER = 362; _RIGHT_OUTER = 263
-_LEFT_TOP    = 159; _LEFT_BOT    = 145
-_RIGHT_TOP   = 386; _RIGHT_BOT   = 374
+_LEFT_OUTER  = 33
+_LEFT_INNER  = 133
+_RIGHT_INNER = 362
+_RIGHT_OUTER = 263
+_LEFT_TOP    = 159
+_LEFT_BOT    = 145
+_RIGHT_TOP   = 386
+_RIGHT_BOT   = 374
 
 EAR_BLINK_THRESHOLD      = 0.20
 FIXATION_VEL_PX_PER_SEC  = 25.0   # pixels/sec below which gaze is a fixation
@@ -85,9 +89,9 @@ class EyeTracker:
                 2 * np.linalg.norm(p[0] - p[3]) + 1e-6
             )
 
-        l = ear(pts(_LEFT_EAR_IDS))
-        r = ear(pts(_RIGHT_EAR_IDS))
-        return (l + r) / 2 < EAR_BLINK_THRESHOLD, float(l), float(r)
+        left = ear(pts(_LEFT_EAR_IDS))
+        right = ear(pts(_RIGHT_EAR_IDS))
+        return (left + right) / 2 < EAR_BLINK_THRESHOLD, float(left), float(right)
 
     def update_fixation(self, gaze, ts):
         """

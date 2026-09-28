@@ -3,7 +3,6 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from face_mesh_3d import write_ply, export_session_face_mesh, export_gaze_trajectory
 

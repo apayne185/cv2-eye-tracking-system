@@ -8,12 +8,21 @@ import pandas as pd
 
 from eye_tracker import EyeTracker
 from head_pose import HeadPoseEstimator
-from gaze_analysis import make_accumulator, add_gaze_point, render_heatmap, generate_heatmap
+from gaze_analysis import make_accumulator, add_gaze_point, render_heatmap
 from AOI import AOITracker
 from direction import GazeDirectionEstimator
 from face_mesh_3d import landmarks_to_numpy, export_session_face_mesh, export_gaze_trajectory
+from gaze_classifier import GazeZoneClassifier, DEFAULT_MODEL_PATH
+from calibration import GazeCalibrator, DEFAULT_CALIB_PATH
 
 _PLY_SAMPLE_INTERVAL = 30  # save one face mesh snapshot per N frames
+
+# Colour coding for attention zone overlay
+_ZONE_COLORS = {
+    'on_screen':  (0, 200,   0),   # green
+    'peripheral': (0, 165, 255),   # orange
+    'away':       (0,   0, 255),   # red
+}
 
 
 def parse_args():
@@ -29,6 +38,10 @@ def parse_args():
     p.add_argument(
         "--export-ply", action="store_true",
         help="Export face mesh and gaze trajectory as PLY point clouds on exit",
+    )
+    p.add_argument(
+        "--calibrate", action="store_true",
+        help="Run 5-point gaze calibration before starting the session",
     )
     return p.parse_args()
 
@@ -90,162 +103,212 @@ def main():
         print(f"Error: cannot open source '{args.source}'")
         return
 
-    frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    try:
+        frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    tracker  = EyeTracker()
-    pose_est = HeadPoseEstimator(frame_w, frame_h)
-    aoi      = AOITracker()
-    dir_est  = GazeDirectionEstimator()
+        tracker  = EyeTracker()
+        pose_est = HeadPoseEstimator(frame_w, frame_h)
+        aoi      = AOITracker()
+        dir_est  = GazeDirectionEstimator()
 
-    heat_acc        = make_accumulator(frame_h, frame_w)
-    records         = []
-    mesh_snapshots  = []   # sampled (N_lm, 3) arrays for PLY export
-    ray_origins     = []   # 3D ray origins per frame
-    ray_directions  = []   # 3D ray directions per frame
-    frame_idx       = 0
-    last_frame      = None
-    last_overlay    = None
+        # --- calibration ---
+        calibrator = None
+        if args.calibrate:
+            print("Starting 5-point calibration — follow the dot with your eyes.")
+            calibrator = GazeCalibrator().run(cap, tracker, frame_w, frame_h)
+            if calibrator.is_fitted:
+                calib_path = calibrator.save()
+                print(f"Calibration saved → {calib_path}")
+        elif DEFAULT_CALIB_PATH.exists():
+            try:
+                calibrator = GazeCalibrator.load(DEFAULT_CALIB_PATH)
+                print(f"Loaded calibration from {DEFAULT_CALIB_PATH}")
+            except Exception as e:
+                print(f"Warning: could not load calibration ({e})")
 
-    print("Running — press 'q' to quit and save results.")
+        zone_clf = None
+        if DEFAULT_MODEL_PATH.exists():
+            try:
+                zone_clf = GazeZoneClassifier.load(DEFAULT_MODEL_PATH)
+                print(f"Loaded zone classifier from {DEFAULT_MODEL_PATH}")
+            except Exception as e:
+                print(f"Warning: could not load zone classifier ({e})")
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+        heat_acc        = make_accumulator(frame_h, frame_w)
+        records         = []
+        mesh_snapshots  = []
+        ray_origins     = []
+        ray_directions  = []
+        frame_idx       = 0
+        last_frame      = None
+        last_overlay    = None
 
-        ts      = time.time()
-        results = tracker.process(frame)
+        print("Running — press 'q' to quit and save results.")
 
-        row = dict(
-            frame=frame_idx, timestamp=round(ts, 4),
-            gaze_x=None, gaze_y=None, gaze_ratio_h=None, gaze_ratio_v=None,
-            pitch=None, yaw=None, roll=None,
-            dir_h=None, dir_v=None,
-            ray_ox=None, ray_oy=None, ray_oz=None,
-            ray_dx=None, ray_dy=None, ray_dz=None,
-            left_ear=None, right_ear=None,
-            is_blink=False, is_fixation=False, active_aoi=None,
-        )
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        if results.multi_face_landmarks:
-            lms = results.multi_face_landmarks[0]
+            ts       = time.time()
+            is_blink = False
+            results  = tracker.process(frame)
 
-            # --- iris-based gaze ---
-            gx, gy, rh, rv = tracker.get_iris_gaze(lms, frame.shape)
-            row.update(gaze_x=gx, gaze_y=gy,
-                       gaze_ratio_h=round(rh, 3), gaze_ratio_v=round(rv, 3))
-            add_gaze_point(heat_acc, gx, gy)
+            row = dict(
+                frame=frame_idx, timestamp=round(ts, 4),
+                gaze_x=None, gaze_y=None, gaze_ratio_h=None, gaze_ratio_v=None,
+                pitch=None, yaw=None, roll=None,
+                dir_h=None, dir_v=None,
+                ray_ox=None, ray_oy=None, ray_oz=None,
+                ray_dx=None, ray_dy=None, ray_dz=None,
+                left_ear=None, right_ear=None,
+                is_blink=False, is_fixation=False, active_aoi=None,
+                predicted_zone=None,
+            )
 
-            # --- fixation ---
-            row["is_fixation"] = tracker.update_fixation((gx, gy), ts)
+            if results.multi_face_landmarks:
+                lms = results.multi_face_landmarks[0]
 
-            # --- blink / EAR ---
-            is_blink, l_ear, r_ear = tracker.detect_blink(lms, frame.shape)
-            row.update(is_blink=is_blink,
-                       left_ear=round(l_ear, 3), right_ear=round(r_ear, 3))
+                # --- iris-based gaze ---
+                gx, gy, rh, rv = tracker.get_iris_gaze(lms, frame.shape)
+                row.update(gaze_x=gx, gaze_y=gy,
+                           gaze_ratio_h=round(rh, 3), gaze_ratio_v=round(rv, 3))
+                add_gaze_point(heat_acc, gx, gy)
 
-            # --- head pose ---
-            pitch, yaw, roll = pose_est.estimate(lms, frame.shape)
-            if pitch is not None:
-                row.update(pitch=round(pitch, 1), yaw=round(yaw, 1), roll=round(roll, 1))
+                # --- fixation ---
+                row["is_fixation"] = tracker.update_fixation((gx, gy), ts)
 
-            # --- gaze direction (iris + head pose) ---
-            if pitch is not None:
-                dh, dv = dir_est.estimate(rh, rv, yaw, pitch)
-                row.update(dir_h=round(dh, 3), dir_v=round(dv, 3))
-                GazeDirectionEstimator.draw_direction_marker(frame, dh, dv)
+                # --- blink / EAR ---
+                is_blink, l_ear, r_ear = tracker.detect_blink(lms, frame.shape)
+                row.update(is_blink=is_blink,
+                           left_ear=round(l_ear, 3), right_ear=round(r_ear, 3))
 
-                # --- 3D gaze ray ---
-                R = pose_est.rotation_matrix
-                t = pose_est.translation_vector
-                if R is not None:
-                    origin, ray_dir = dir_est.gaze_ray_3d(rh, rv, R, t)
-                    pose_est.draw_gaze_ray(frame, origin, ray_dir)
-                    row.update(
-                        ray_ox=round(float(origin[0]),  1),
-                        ray_oy=round(float(origin[1]),  1),
-                        ray_oz=round(float(origin[2]),  1),
-                        ray_dx=round(float(ray_dir[0]), 3),
-                        ray_dy=round(float(ray_dir[1]), 3),
-                        ray_dz=round(float(ray_dir[2]), 3),
+                # --- head pose ---
+                pitch, yaw, roll = pose_est.estimate(lms, frame.shape)
+                if pitch is not None:
+                    row.update(pitch=round(pitch, 1), yaw=round(yaw, 1), roll=round(roll, 1))
+
+                # --- gaze direction (iris + head pose) ---
+                if pitch is not None:
+                    dh, dv = dir_est.estimate(rh, rv, yaw, pitch)
+                    row.update(dir_h=round(dh, 3), dir_v=round(dv, 3))
+                    GazeDirectionEstimator.draw_direction_marker(frame, dh, dv)
+
+                    # --- calibrated screen point ---
+                    if calibrator is not None:
+                        cx, cy = calibrator.to_screen_point(rh, rv, frame_w, frame_h)
+                        cv2.drawMarker(frame, (cx, cy), (255, 100, 0),
+                                       cv2.MARKER_CROSS, 20, 2)
+
+                    # --- attention zone classification ---
+                    if zone_clf is not None:
+                        zone = zone_clf.predict({
+                            'gaze_ratio_h': rh, 'gaze_ratio_v': rv,
+                            'yaw': yaw, 'dir_h': dh, 'dir_v': dv,
+                        })
+                        row['predicted_zone'] = zone
+
+                    # --- 3D gaze ray ---
+                    R = pose_est.rotation_matrix
+                    t = pose_est.translation_vector
+                    if R is not None:
+                        origin, ray_dir = dir_est.gaze_ray_3d(rh, rv, R, t)
+                        pose_est.draw_gaze_ray(frame, origin, ray_dir)
+                        row.update(
+                            ray_ox=round(float(origin[0]),  1),
+                            ray_oy=round(float(origin[1]),  1),
+                            ray_oz=round(float(origin[2]),  1),
+                            ray_dx=round(float(ray_dir[0]), 3),
+                            ray_dy=round(float(ray_dir[1]), 3),
+                            ray_dz=round(float(ray_dir[2]), 3),
+                        )
+                        ray_origins.append(origin)
+                        ray_directions.append(ray_dir)
+
+                if args.export_ply and frame_idx % _PLY_SAMPLE_INTERVAL == 0:
+                    mesh_snapshots.append(
+                        landmarks_to_numpy(lms, frame_w, frame_h)
                     )
-                    ray_origins.append(origin)
-                    ray_directions.append(ray_dir)
 
-            if args.export_ply and frame_idx % _PLY_SAMPLE_INTERVAL == 0:
-                mesh_snapshots.append(
-                    landmarks_to_numpy(lms, frame_w, frame_h)
-                )
+                # --- AOI ---
+                row["active_aoi"] = aoi.track(frame, (gx, gy), ts)
 
-            # --- AOI ---
-            row["active_aoi"] = aoi.track(frame, (gx, gy), ts)
+                # --- draw overlays ---
+                tracker.draw_overlays(frame, lms)
+                pose_est.draw_axes(frame)
 
-            # --- draw overlays ---
-            tracker.draw_overlays(frame, lms)
-            pose_est.draw_axes(frame)
+                label = "BLINK" if is_blink else _gaze_label(rh, rv)
+                color = (0, 0, 255) if is_blink else (0, 255, 0)
+                cv2.putText(frame, label, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
+                if pitch is not None:
+                    cv2.putText(
+                        frame, f"P:{pitch:.1f}  Y:{yaw:.1f}  R:{roll:.1f}",
+                        (20, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1,
+                    )
+                    zone = row.get('predicted_zone')
+                    if zone is not None:
+                        cv2.putText(
+                            frame, f"Zone: {zone}",
+                            (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                            _ZONE_COLORS.get(zone, (255, 255, 255)), 2,
+                        )
 
-            label = "BLINK" if is_blink else _gaze_label(rh, rv)
-            color = (0, 0, 255) if is_blink else (0, 255, 0)
-            cv2.putText(frame, label, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
-            if pitch is not None:
-                cv2.putText(
-                    frame, f"P:{pitch:.1f}  Y:{yaw:.1f}  R:{roll:.1f}",
-                    (20, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1,
-                )
+            records.append(row)
+            last_frame = frame.copy()
 
-        records.append(row)
-        last_frame = frame.copy()
+            if frame_idx > 10:
+                heatmap      = render_heatmap(heat_acc)
+                last_overlay = cv2.addWeighted(frame, 0.6, heatmap, 0.4, 0)
+                cv2.imshow("Eye Tracker", last_overlay)
+            else:
+                cv2.imshow("Eye Tracker", frame)
 
-        if frame_idx > 10:
-            heatmap      = render_heatmap(heat_acc)
-            last_overlay = cv2.addWeighted(frame, 0.6, heatmap, 0.4, 0)
-            cv2.imshow("Eye Tracker", last_overlay)
-        else:
-            cv2.imshow("Eye Tracker", frame)
+            frame_idx += 1
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
 
-        frame_idx += 1
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
+        # --- save outputs (still inside try so locals are in scope) ---
+        if not records:
+            return
 
-    cap.release()
-    cv2.destroyAllWindows()
+        ts_str = time.strftime("%Y%m%d_%H%M%S")
+        df     = pd.DataFrame(records)
 
-    if not records:
-        return
+        csv_path = out / f"gaze_{ts_str}.csv"
+        df.to_csv(csv_path, index=False)
+        print(f"Saved {len(records)} frames → {csv_path}")
 
-    ts_str = time.strftime("%Y%m%d_%H%M%S")
-    df     = pd.DataFrame(records)
+        summary = _print_summary(df, tracker.fixations, aoi)
 
-    csv_path = out / f"gaze_{ts_str}.csv"
-    df.to_csv(csv_path, index=False)
-    print(f"Saved {len(records)} frames → {csv_path}")
+        summary_path = out / f"summary_{ts_str}.txt"
+        summary_path.write_text(summary)
+        print(f"Summary saved  → {summary_path}")
 
-    summary = _print_summary(df, tracker.fixations, aoi)
+        if frame_idx > 0 and last_frame is not None:
+            heatmap = render_heatmap(heat_acc)
+            cv2.imwrite(str(out / f"heatmap_{ts_str}.jpg"), heatmap)
+            if last_overlay is not None:
+                cv2.imwrite(str(out / f"heatmap_overlay_{ts_str}.jpg"), last_overlay)
+            print(f"Heatmap saved  → {out}/heatmap_{ts_str}.jpg")
 
-    summary_path = out / f"summary_{ts_str}.txt"
-    summary_path.write_text(summary)
-    print(f"Summary saved  → {summary_path}")
+        if args.export_ply:
+            if mesh_snapshots:
+                mesh_path = out / f"face_mesh_{ts_str}.ply"
+                export_session_face_mesh(mesh_path, mesh_snapshots)
+                print(f"Face mesh PLY  → {mesh_path}  ({len(mesh_snapshots)} snapshots)")
 
-    if frame_idx > 0 and last_frame is not None:
-        heatmap = render_heatmap(heat_acc)
-        cv2.imwrite(str(out / f"heatmap_{ts_str}.jpg"), heatmap)
-        if last_overlay is not None:
-            cv2.imwrite(str(out / f"heatmap_overlay_{ts_str}.jpg"), last_overlay)
-        print(f"Heatmap saved  → {out}/heatmap_{ts_str}.jpg")
+            if ray_origins:
+                origins    = np.array(ray_origins,    dtype=np.float32)
+                directions = np.array(ray_directions, dtype=np.float32)
+                traj_path  = out / f"gaze_trajectory_{ts_str}.ply"
+                export_gaze_trajectory(traj_path, origins, directions)
+                print(f"Gaze trajectory PLY → {traj_path}  ({len(origins)} points)")
 
-    if args.export_ply:
-        if mesh_snapshots:
-            mesh_path = out / f"face_mesh_{ts_str}.ply"
-            export_session_face_mesh(mesh_path, mesh_snapshots)
-            print(f"Face mesh PLY  → {mesh_path}  ({len(mesh_snapshots)} snapshots)")
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
 
-        if ray_origins:
-            origins    = np.array(ray_origins,    dtype=np.float32)
-            directions = np.array(ray_directions, dtype=np.float32)
-            traj_path  = out / f"gaze_trajectory_{ts_str}.ply"
-            export_gaze_trajectory(traj_path, origins, directions)
-            print(f"Gaze trajectory PLY → {traj_path}  ({len(origins)} points)")
 
 if __name__ == "__main__":
     main()

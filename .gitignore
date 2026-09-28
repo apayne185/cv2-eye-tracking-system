@@ -8,3 +8,8 @@ data/
 .pytest_cache/
 models/
 condaenv.*.requirements.txt
+.ipynb_checkpoints/
+.coverage
+coverage.xml
+htmlcov/
+.ruff_cache/
