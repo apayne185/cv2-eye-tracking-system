@@ -137,7 +137,7 @@ class GazeZoneClassifier:
         self._check_trained()
         row = self._to_row(features)
         probs = self._model.predict_proba(row)[0]
-        return dict(zip(self._model.classes_, probs.tolist()))
+        return dict(zip(self._model.classes_, probs.tolist(), strict=True))
 
     # ------------------------------------------------------------------
     # Evaluation
@@ -157,7 +157,7 @@ class GazeZoneClassifier:
     def feature_importances(self) -> 'dict[str, float]':
         self._check_trained()
         imps = self._model.named_steps['clf'].feature_importances_
-        return dict(zip(FEATURES, imps.tolist()))
+        return dict(zip(FEATURES, imps.tolist(), strict=True))
 
     # ------------------------------------------------------------------
     # Persistence
