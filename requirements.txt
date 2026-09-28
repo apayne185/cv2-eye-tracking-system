@@ -1,6 +1,6 @@
 # Runtime dependencies (pinned; Dependabot opens PRs for updates).
 # mediapipe 0.10.9 ships wheels for Python 3.8-3.11 only.
-opencv-python==4.13.0.92
+opencv-python==5.0.0.93
 numpy==2.4.6
 mediapipe==0.10.9
 pandas==3.0.3
