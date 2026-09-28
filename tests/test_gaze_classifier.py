@@ -1,17 +1,13 @@
+
 import numpy as np
 import pytest
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
-
-from gaze_classifier import (
+from eyetrack.gaze_classifier import (
     FEATURES,
     ZONES,
     GazeZoneClassifier,
     generate_training_data,
 )
-
 
 # ---------------------------------------------------------------------------
 # generate_training_data

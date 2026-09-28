@@ -3,7 +3,8 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 import pytest
-from head_pose import _LM_IDS, _MODEL_3D, HeadPoseEstimator
+
+from eyetrack.head_pose import _LM_IDS, _MODEL_3D, HeadPoseEstimator
 
 W, H = 640, 480
 

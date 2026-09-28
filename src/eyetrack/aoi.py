@@ -1,6 +1,7 @@
-import cv2
 import time
 from collections import defaultdict
+
+import cv2
 
 # Default AOI layout — override by passing a dict to AOITracker.__init__
 DEFAULT_AOIS = {

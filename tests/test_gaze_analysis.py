@@ -1,5 +1,6 @@
 import numpy as np
-from gaze_analysis import make_accumulator, add_gaze_point, render_heatmap
+
+from eyetrack.gaze_analysis import add_gaze_point, make_accumulator, render_heatmap
 
 
 def test_accumulator_shape_and_dtype():

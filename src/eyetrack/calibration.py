@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 from sklearn.linear_model import LinearRegression
 
-DEFAULT_CALIB_PATH = Path(__file__).parent.parent / 'models' / 'calibration.json'
+DEFAULT_CALIB_PATH = Path('models') / 'calibration.json'
 
 # Normalised (x, y) positions of the 5 fixation targets
 CALIB_POINTS_NORM: list[tuple[float, float]] = [

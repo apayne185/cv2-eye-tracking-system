@@ -1,6 +1,6 @@
 import numpy as np
 
-from direction import GazeDirectionEstimator
+from eyetrack.direction import GazeDirectionEstimator
 
 
 def test_centered_iris_no_head_movement_is_origin():

@@ -17,7 +17,7 @@ import numpy as np
 ZONES    = ('on_screen', 'peripheral', 'away')
 FEATURES = ('gaze_ratio_h', 'gaze_ratio_v', 'yaw', 'dir_h', 'dir_v')
 
-DEFAULT_MODEL_PATH = Path(__file__).parent.parent / 'models' / 'gaze_zone_classifier.joblib'
+DEFAULT_MODEL_PATH = Path('models') / 'gaze_zone_classifier.joblib'
 
 
 def generate_training_data(n_per_class: int = 600,

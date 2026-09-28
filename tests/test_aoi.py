@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
-from AOI import AOITracker
+
+from eyetrack.aoi import AOITracker
 
 AOIS = {"A": (0, 0, 100, 100), "B": (200, 0, 300, 100)}
 

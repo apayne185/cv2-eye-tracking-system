@@ -1,4 +1,4 @@
-from eye_tracker import EyeTracker, MIN_FIXATION_SECS
+from eyetrack.eye_tracker import MIN_FIXATION_SECS, EyeTracker
 
 
 def test_stationary_gaze_is_fixation():

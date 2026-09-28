@@ -36,6 +36,6 @@ jobs:
       - name: Install system libraries for OpenCV
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-test.txt
+        run: pip install -e . -r requirements-test.txt
       - name: Run tests
         run: pytest --cov --cov-report=term-missing --cov-report=markdown-append:$GITHUB_STEP_SUMMARY

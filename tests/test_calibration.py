@@ -1,12 +1,8 @@
 import json
+
 import pytest
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
-
-from calibration import CALIB_POINTS_NORM, GazeCalibrator
-
+from eyetrack.calibration import CALIB_POINTS_NORM, GazeCalibrator
 
 # ---------------------------------------------------------------------------
 # Helpers
