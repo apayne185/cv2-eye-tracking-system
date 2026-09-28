@@ -1,5 +1,10 @@
 # Eye Tracking System with OpenCV and MediaPipe
 
+[![CI](https://github.com/apayne185/cv2-eye-tracking-system/actions/workflows/ci.yml/badge.svg)](https://github.com/apayne185/cv2-eye-tracking-system/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/apayne185/cv2-eye-tracking-system/actions/workflows/codeql.yml/badge.svg)](https://github.com/apayne185/cv2-eye-tracking-system/actions/workflows/codeql.yml)
+![Python 3.11](https://img.shields.io/badge/python-3.11-blue)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 Real-time eye tracking pipeline built with Python, OpenCV, and MediaPipe FaceMesh. Tracks iris position, estimates head pose in 3D, detects fixations and blinks, maps gaze to Areas of Interest, and exports per-frame metrics to CSV for offline analysis.
 
 ## Demo
@@ -38,12 +43,14 @@ conda activate eyetrack
 
 **pip / venv:**
 ```bash
-pip install -r requirements.txt
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt        # runtime only
+pip install -r requirements-dev.txt    # + pytest, ruff, pre-commit, jupyterlab
 ```
 
-**Requirements:** Python 3.11+, opencv-python, numpy, mediapipe, pandas, scipy
+**Requirements:** Python 3.11 (mediapipe 0.10.9 has no wheels for 3.12+). All versions are pinned in `requirements.txt`.
 
-**Windows note:** tested on Windows 11 with Python 3.12. The conda env is recommended — a `pytest.ini` is included that suppresses a known conflict between the `dash` pytest plugin and mediapipe's DLL initialisation on Windows.
+**Windows note:** tested on Windows 11. The conda env is recommended — a `pytest.ini` is included that suppresses a known conflict between the `dash` pytest plugin and mediapipe's DLL initialisation on Windows.
 
 ---
 
@@ -115,37 +122,33 @@ AOI dwell (seconds):
 
 ```
 cv2-eye-tracking-system/
+├── .github/
+│   ├── workflows/ci.yml     # Lint (ruff) + tests with coverage on every push/PR
+│   ├── workflows/codeql.yml # CodeQL security scanning
+│   └── dependabot.yml       # Weekly dependency updates (pip, Actions, pre-commit)
 ├── src/
-│   ├── main.py             # Entry point — argparse, main loop, CSV export
-│   ├── eye_tracker.py      # EyeTracker class: iris gaze, EAR blink, fixation
-│   ├── head_pose.py        # HeadPoseEstimator: solvePnP, draw_axes, gaze ray
-│   ├── direction.py        # GazeDirectionEstimator: 2D direction + 3D gaze ray
-│   ├── face_mesh_3d.py     # PLY point cloud export: face mesh + gaze trajectory
-│   ├── gaze_analysis.py    # Heatmap accumulator and renderer
-│   ├── gaze_classifier.py  # GazeZoneClassifier: sklearn RF pipeline
-│   ├── calibration.py      # GazeCalibrator: 5-point linear calibration
-│   ├── AOI.py              # AOITracker class with dwell-time accumulation
-│   └── old_work/           # Legacy scripts (reference only)
+│   ├── main.py              # Entry point — argparse, main loop, CSV export
+│   ├── eye_tracker.py       # EyeTracker class: iris gaze, EAR blink, fixation
+│   ├── head_pose.py         # HeadPoseEstimator: solvePnP, draw_axes, gaze ray
+│   ├── direction.py         # GazeDirectionEstimator: 2D direction + 3D gaze ray
+│   ├── face_mesh_3d.py      # PLY point cloud export: face mesh + gaze trajectory
+│   ├── gaze_analysis.py     # Heatmap accumulator and renderer
+│   ├── gaze_classifier.py   # GazeZoneClassifier: sklearn RF pipeline
+│   ├── calibration.py       # GazeCalibrator: 5-point linear calibration
+│   └── AOI.py               # AOITracker class with dwell-time accumulation
 ├── notebooks/
-│   ├── analysis.ipynb      # Offline session analysis — plots, heatmap, stats
-│   └── classifier.ipynb    # ML training pipeline — RF vs SVM vs MLP, CV, confusion matrix
-├── tests/
-│   ├── test_direction.py        # Direction estimator unit tests
-│   ├── test_fixation.py         # Fixation state machine unit tests
-│   ├── test_gaze_analysis.py    # Heatmap accumulator unit tests
-│   ├── test_face_mesh_3d.py     # PLY export unit tests
-│   └── test_gaze_classifier.py  # Classifier training, inference, persistence
-│   ├── conftest.py         # sys.path setup for src/ imports
-│   ├── test_direction.py   # Direction estimator unit tests
-│   ├── test_fixation.py    # Fixation state machine unit tests
-│   ├── test_face_mesh_3d.py   # PLY export unit tests
-│   └── test_gaze_analysis.py  # Heatmap accumulator unit tests
-├── data/                   # Session output (CSV, heatmap, summary) — gitignored
-├── eye_gaze_heatmap.jpg    # Sample heatmap output
-├── pytest.ini              # Disables dash plugin (Windows mediapipe compatibility)
-├── environment.yml         # conda env (Python 3.11, eyetrack)
-├── requirements.txt
-└── README.md
+│   ├── analysis.ipynb       # Offline session analysis — plots, heatmap, stats
+│   └── classifier.ipynb     # ML training pipeline — RF vs SVM vs MLP, CV, confusion matrix
+├── tests/                   # pytest suite (conftest.py adds src/ to sys.path)
+├── data/                    # Session output (CSV, heatmap, summary) — gitignored
+├── models/                  # Trained classifier + calibration — gitignored
+├── eye_gaze_heatmap.jpg     # Sample heatmap output
+├── pyproject.toml           # ruff + coverage config
+├── pytest.ini               # Disables dash plugin (Windows mediapipe compatibility)
+├── .pre-commit-config.yaml
+├── environment.yml          # conda env (Python 3.11) built from requirements files
+├── requirements.txt         # Pinned runtime dependencies
+└── requirements-dev.txt     # Test, lint, and notebook tooling
 ```
 
 ---
@@ -196,12 +199,18 @@ Trains a Random Forest on synthetic gaze data (1800 samples, 3 classes) and demo
 
 ---
 
-## Running the tests
+## Development
 
 ```bash
-conda activate eyetrack
-pip install pytest
-pytest tests/ -v
+pip install -r requirements-dev.txt
+pre-commit install          # run ruff + hygiene checks on every commit
+
+ruff check src tests        # lint
+pytest --cov                # 74 tests with coverage report
 ```
 
-29 tests across direction estimation, face mesh export, fixation detection, and heatmap accumulation.
+The suite covers direction estimation, head pose (solvePnP round-trip), fixation detection, AOI dwell time, heatmap accumulation, PLY export, calibration, and the gaze classifier. The webcam loop in `main.py` is exercised manually.
+
+### Continuous integration
+
+Every push and pull request runs `ruff` and the full test suite on GitHub Actions (Ubuntu, Python 3.11), with a coverage table in the job summary. CodeQL scans for security issues weekly and on PRs. Dependabot opens grouped weekly PRs for Python packages, GitHub Actions, and pre-commit hooks; `mediapipe` is held at 0.10.9 because later releases remove the `mp.solutions` FaceMesh API.
