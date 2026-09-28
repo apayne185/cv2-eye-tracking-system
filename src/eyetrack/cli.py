@@ -1,5 +1,4 @@
 import argparse
-import time
 from pathlib import Path
 
 import cv2
@@ -10,6 +9,7 @@ from .gaze_classifier import DEFAULT_MODEL_PATH, GazeZoneClassifier
 from .pipeline import FrameProcessor
 from .render import draw_result
 from .session import SessionRecorder
+from .sources import SourceError, VideoSource
 
 
 def parse_args():
@@ -37,22 +37,21 @@ def main():
     args   = parse_args()
     out    = Path(args.output_dir)
 
-    source = int(args.source) if args.source.isdigit() else args.source
-    cap    = cv2.VideoCapture(source)
-    if not cap.isOpened():
-        print(f"Error: cannot open source '{args.source}'")
+    try:
+        source = VideoSource(args.source)
+    except SourceError as e:
+        print(f"Error: {e}")
         return
 
     try:
-        frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        frame_w, frame_h = source.width, source.height
         tracker = EyeTracker()
 
         # --- calibration ---
         calibrator = None
         if args.calibrate:
             print("Starting 5-point calibration — follow the dot with your eyes.")
-            calibrator = GazeCalibrator().run(cap, tracker, frame_w, frame_h)
+            calibrator = GazeCalibrator().run(source.cap, tracker, frame_w, frame_h)
             if calibrator.is_fitted:
                 calib_path = calibrator.save()
                 print(f"Calibration saved → {calib_path}")
@@ -78,12 +77,8 @@ def main():
 
         print("Running — press 'q' to quit and save results.")
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            res = proc.process(frame, time.time())
+        for frame, ts in source.frames():
+            res = proc.process(frame, ts)
             recorder.add(res)
             draw_result(frame, res, proc)
 
@@ -110,7 +105,7 @@ def main():
             print(f"Gaze trajectory PLY → {outputs.gaze_trajectory_ply}")
 
     finally:
-        cap.release()
+        source.release()
         cv2.destroyAllWindows()
 
 
