@@ -108,6 +108,9 @@ class FrameProcessor:
 
         mesh = self.tracker.process(frame)
         if not mesh.multi_face_landmarks:
+            # don't let the untracked gap count as dwell time or fixation
+            self.tracker.interrupt_fixation()
+            self.aoi.pause()
             return res
         self._process_face(res, mesh.multi_face_landmarks[0], frame.shape, ts)
         return res

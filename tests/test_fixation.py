@@ -1,3 +1,5 @@
+import pytest
+
 from eyetrack.eye_tracker import MIN_FIXATION_SECS, EyeTracker
 
 
@@ -39,3 +41,19 @@ def test_too_short_fixation_not_logged():
     tracker.update_fixation((50, 50), 0.01)   # only 10 ms — below threshold
     tracker.update_fixation((1000, 1000), 0.02)
     assert len(tracker.fixations) == 0
+
+
+def test_interrupt_logs_fixation_in_progress():
+    tracker = EyeTracker()
+    for i in range(5):
+        tracker.update_fixation((100, 100), i * 0.05)
+    tracker.interrupt_fixation()
+    assert len(tracker.fixations) == 1
+    assert tracker.fixations[0]["duration"] == pytest.approx(0.15)
+    assert not tracker.update_fixation((100, 100), 10.0)
+
+
+def test_interrupt_without_fixation_is_noop():
+    tracker = EyeTracker()
+    tracker.interrupt_fixation()
+    assert tracker.fixations == []

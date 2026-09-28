@@ -36,6 +36,10 @@ class AOITracker:
         self._last_ts = now
         return active
 
+    def pause(self):
+        """Stops the dwell clock until the next update() (e.g. face lost)."""
+        self._last_ts = None
+
     def draw(self, frame, active=None):
         """Draws all AOIs on frame, highlighting the active one."""
         for name, (x1, y1, x2, y2) in self.aois.items():

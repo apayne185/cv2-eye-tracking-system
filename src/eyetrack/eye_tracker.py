@@ -122,6 +122,22 @@ class EyeTracker:
         self._prev_gaze, self._prev_ts = gaze, ts
         return is_fix
 
+    def interrupt_fixation(self):
+        """
+        Call when tracking is lost. Logs any fixation in progress as ending
+        at the last tracked frame and clears velocity history, so the gap
+        isn't read as a stationary gaze.
+        """
+        if self._fixating and self._fix_start is not None:
+            dur = self._prev_ts - self._fix_start
+            if dur >= MIN_FIXATION_SECS:
+                self.fixations.append({
+                    "x": self._prev_gaze[0], "y": self._prev_gaze[1],
+                    "duration": dur, "end_time": self._prev_ts,
+                })
+        self._prev_gaze = self._prev_ts = self._fix_start = None
+        self._fixating  = False
+
     def draw_overlays(self, frame, lms):
         h, w = frame.shape[:2]
         lm = lms.landmark

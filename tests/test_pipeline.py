@@ -62,3 +62,20 @@ def test_to_row_matches_csv_schema_and_rounds(frame, face_tracker):
     assert tuple(row) == CSV_COLUMNS
     assert row["timestamp"] == 12.3457
     assert row["ray_dx"] == round(row["ray_dx"], 3)
+
+
+def test_face_loss_gap_not_counted_as_dwell_or_fixation(frame, face_tracker):
+    proc = FrameProcessor(W, H, tracker=face_tracker)
+    lms = face_tracker.landmarks
+    for i in range(6):                       # 0.2s looking at Center
+        proc.process(frame, i / 30)
+    face_tracker.landmarks = None            # face lost for 10s
+    proc.process(frame, 1.0)
+    face_tracker.landmarks = lms
+    res = proc.process(frame, 11.0)          # face back
+
+    assert proc.aoi.time_spent["Center"] == pytest.approx(5 / 30)
+    assert not res.is_fixation
+    # the fixation interrupted by the face loss is closed at the last seen frame
+    assert len(face_tracker.fixations) == 1
+    assert face_tracker.fixations[0]["duration"] == pytest.approx(4 / 30)
