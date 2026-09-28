@@ -57,3 +57,10 @@ def test_interrupt_without_fixation_is_noop():
     tracker = EyeTracker()
     tracker.interrupt_fixation()
     assert tracker.fixations == []
+
+
+def test_thresholds_are_configurable():
+    strict = EyeTracker(fixation_velocity=1.0)
+    strict.update_fixation((100, 100), 0.0)
+    assert not strict.update_fixation((102, 100), 1.0)   # 2 px/s > 1 px/s
+    assert EyeTracker().update_fixation((100, 100), 0.0) is False
