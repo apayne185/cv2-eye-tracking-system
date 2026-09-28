@@ -3,30 +3,13 @@ import time
 from pathlib import Path
 
 import cv2
-import numpy as np
-import pandas as pd
 
-from .aoi import AOITracker
 from .calibration import DEFAULT_CALIB_PATH, GazeCalibrator
-from .direction import GazeDirectionEstimator
 from .eye_tracker import EyeTracker
-from .face_mesh_3d import (
-    export_gaze_trajectory,
-    export_session_face_mesh,
-    landmarks_to_numpy,
-)
-from .gaze_analysis import add_gaze_point, make_accumulator, render_heatmap
 from .gaze_classifier import DEFAULT_MODEL_PATH, GazeZoneClassifier
-from .head_pose import HeadPoseEstimator
-
-_PLY_SAMPLE_INTERVAL = 30  # save one face mesh snapshot per N frames
-
-# Colour coding for attention zone overlay
-_ZONE_COLORS = {
-    'on_screen':  (0, 200,   0),   # green
-    'peripheral': (0, 165, 255),   # orange
-    'away':       (0,   0, 255),   # red
-}
+from .pipeline import FrameProcessor
+from .render import draw_result
+from .session import SessionRecorder
 
 
 def parse_args():
@@ -50,56 +33,9 @@ def parse_args():
     return p.parse_args()
 
 
-def _gaze_label(ratio_h, ratio_v):
-    h = "LEFT" if ratio_h < 0.40 else ("RIGHT" if ratio_h > 0.60 else "CENTER")
-    v = "UP"   if ratio_v < 0.35 else ("DOWN"  if ratio_v > 0.65 else "")
-    return f"{v} {h}".strip() if v else h
-
-
-def _build_summary(df, fixations, aoi_tracker) -> str:
-    n = len(df)
-    blinks     = int(df["is_blink"].sum())
-    fix_frames = int(df["is_fixation"].sum())
-
-    lines = [
-        "--- Session Summary ---",
-        f"Frames recorded:  {n}",
-        f"Blinks detected:  {blinks}",
-        f"Fixation frames:  {fix_frames}  ({100 * fix_frames / n:.1f}%)",
-    ]
-
-    if fixations:
-        durs = [f["duration"] for f in fixations]
-        lines.append(
-            f"Fixations:        {len(fixations)}"
-            f"  avg={np.mean(durs):.2f}s"
-            f"  max={np.max(durs):.2f}s"
-        )
-
-    aoi_col = df["active_aoi"].dropna()
-    if not aoi_col.empty:
-        lines.append("AOI dwell (frames):")
-        for name, cnt in aoi_col.value_counts().items():
-            lines.append(f"  {name}: {cnt}  ({100 * cnt / n:.1f}%)")
-
-    if aoi_tracker.time_spent:
-        lines.append("AOI dwell (seconds):")
-        for name, secs in sorted(aoi_tracker.time_spent.items(), key=lambda x: -x[1]):
-            lines.append(f"  {name}: {secs:.2f}s")
-
-    return "\n".join(lines)
-
-
-def _print_summary(df, fixations, aoi_tracker) -> str:
-    summary = _build_summary(df, fixations, aoi_tracker)
-    print(f"\n{summary}")
-    return summary
-
-
 def main():
     args   = parse_args()
     out    = Path(args.output_dir)
-    out.mkdir(parents=True, exist_ok=True)
 
     source = int(args.source) if args.source.isdigit() else args.source
     cap    = cv2.VideoCapture(source)
@@ -110,11 +46,7 @@ def main():
     try:
         frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-        tracker  = EyeTracker()
-        pose_est = HeadPoseEstimator(frame_w, frame_h)
-        aoi      = AOITracker()
-        dir_est  = GazeDirectionEstimator()
+        tracker = EyeTracker()
 
         # --- calibration ---
         calibrator = None
@@ -139,14 +71,10 @@ def main():
             except Exception as e:
                 print(f"Warning: could not load zone classifier ({e})")
 
-        heat_acc        = make_accumulator(frame_h, frame_w)
-        records         = []
-        mesh_snapshots  = []
-        ray_origins     = []
-        ray_directions  = []
-        frame_idx       = 0
-        last_frame      = None
-        last_overlay    = None
+        proc = FrameProcessor(frame_w, frame_h, calibrator=calibrator,
+                              zone_classifier=zone_clf, tracker=tracker)
+        recorder     = SessionRecorder(frame_w, frame_h, export_ply=args.export_ply)
+        last_overlay = None
 
         print("Running — press 'q' to quit and save results.")
 
@@ -155,159 +83,31 @@ def main():
             if not ret:
                 break
 
-            ts       = time.time()
-            is_blink = False
-            results  = tracker.process(frame)
+            res = proc.process(frame, time.time())
+            recorder.add(res)
+            draw_result(frame, res, proc)
 
-            row = dict(
-                frame=frame_idx, timestamp=round(ts, 4),
-                gaze_x=None, gaze_y=None, gaze_ratio_h=None, gaze_ratio_v=None,
-                pitch=None, yaw=None, roll=None,
-                dir_h=None, dir_v=None,
-                ray_ox=None, ray_oy=None, ray_oz=None,
-                ray_dx=None, ray_dy=None, ray_dz=None,
-                left_ear=None, right_ear=None,
-                is_blink=False, is_fixation=False, active_aoi=None,
-                predicted_zone=None,
-            )
-
-            if results.multi_face_landmarks:
-                lms = results.multi_face_landmarks[0]
-
-                # --- iris-based gaze ---
-                gx, gy, rh, rv = tracker.get_iris_gaze(lms, frame.shape)
-                row.update(gaze_x=gx, gaze_y=gy,
-                           gaze_ratio_h=round(rh, 3), gaze_ratio_v=round(rv, 3))
-                add_gaze_point(heat_acc, gx, gy)
-
-                # --- fixation ---
-                row["is_fixation"] = tracker.update_fixation((gx, gy), ts)
-
-                # --- blink / EAR ---
-                is_blink, l_ear, r_ear = tracker.detect_blink(lms, frame.shape)
-                row.update(is_blink=is_blink,
-                           left_ear=round(l_ear, 3), right_ear=round(r_ear, 3))
-
-                # --- head pose ---
-                pitch, yaw, roll = pose_est.estimate(lms, frame.shape)
-                if pitch is not None:
-                    row.update(pitch=round(pitch, 1), yaw=round(yaw, 1), roll=round(roll, 1))
-
-                # --- gaze direction (iris + head pose) ---
-                if pitch is not None:
-                    dh, dv = dir_est.estimate(rh, rv, yaw, pitch)
-                    row.update(dir_h=round(dh, 3), dir_v=round(dv, 3))
-                    GazeDirectionEstimator.draw_direction_marker(frame, dh, dv)
-
-                    # --- calibrated screen point ---
-                    if calibrator is not None:
-                        cx, cy = calibrator.to_screen_point(rh, rv, frame_w, frame_h)
-                        cv2.drawMarker(frame, (cx, cy), (255, 100, 0),
-                                       cv2.MARKER_CROSS, 20, 2)
-
-                    # --- attention zone classification ---
-                    if zone_clf is not None:
-                        zone = zone_clf.predict({
-                            'gaze_ratio_h': rh, 'gaze_ratio_v': rv,
-                            'yaw': yaw, 'dir_h': dh, 'dir_v': dv,
-                        })
-                        row['predicted_zone'] = zone
-
-                    # --- 3D gaze ray ---
-                    R = pose_est.rotation_matrix
-                    t = pose_est.translation_vector
-                    if R is not None:
-                        origin, ray_dir = dir_est.gaze_ray_3d(rh, rv, R, t)
-                        pose_est.draw_gaze_ray(frame, origin, ray_dir)
-                        row.update(
-                            ray_ox=round(float(origin[0]),  1),
-                            ray_oy=round(float(origin[1]),  1),
-                            ray_oz=round(float(origin[2]),  1),
-                            ray_dx=round(float(ray_dir[0]), 3),
-                            ray_dy=round(float(ray_dir[1]), 3),
-                            ray_dz=round(float(ray_dir[2]), 3),
-                        )
-                        ray_origins.append(origin)
-                        ray_directions.append(ray_dir)
-
-                if args.export_ply and frame_idx % _PLY_SAMPLE_INTERVAL == 0:
-                    mesh_snapshots.append(
-                        landmarks_to_numpy(lms, frame_w, frame_h)
-                    )
-
-                # --- AOI ---
-                row["active_aoi"] = aoi.track(frame, (gx, gy), ts)
-
-                # --- draw overlays ---
-                tracker.draw_overlays(frame, lms)
-                pose_est.draw_axes(frame)
-
-                label = "BLINK" if is_blink else _gaze_label(rh, rv)
-                color = (0, 0, 255) if is_blink else (0, 255, 0)
-                cv2.putText(frame, label, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
-                if pitch is not None:
-                    cv2.putText(
-                        frame, f"P:{pitch:.1f}  Y:{yaw:.1f}  R:{roll:.1f}",
-                        (20, 72), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1,
-                    )
-                    zone = row.get('predicted_zone')
-                    if zone is not None:
-                        cv2.putText(
-                            frame, f"Zone: {zone}",
-                            (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                            _ZONE_COLORS.get(zone, (255, 255, 255)), 2,
-                        )
-
-            records.append(row)
-            last_frame = frame.copy()
-
-            if frame_idx > 10:
-                heatmap      = render_heatmap(heat_acc)
-                last_overlay = cv2.addWeighted(frame, 0.6, heatmap, 0.4, 0)
+            if res.frame > 10:
+                last_overlay = recorder.heatmap_overlay(frame)
                 cv2.imshow("Eye Tracker", last_overlay)
             else:
                 cv2.imshow("Eye Tracker", frame)
 
-            frame_idx += 1
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 
-        # --- save outputs (still inside try so locals are in scope) ---
-        if not records:
+        outputs = recorder.save(out, tracker.fixations, proc.aoi.time_spent, last_overlay)
+        if outputs.csv is None:
             return
 
-        ts_str = time.strftime("%Y%m%d_%H%M%S")
-        df     = pd.DataFrame(records)
-
-        csv_path = out / f"gaze_{ts_str}.csv"
-        df.to_csv(csv_path, index=False)
-        print(f"Saved {len(records)} frames → {csv_path}")
-
-        summary = _print_summary(df, tracker.fixations, aoi)
-
-        summary_path = out / f"summary_{ts_str}.txt"
-        summary_path.write_text(summary)
-        print(f"Summary saved  → {summary_path}")
-
-        if frame_idx > 0 and last_frame is not None:
-            heatmap = render_heatmap(heat_acc)
-            cv2.imwrite(str(out / f"heatmap_{ts_str}.jpg"), heatmap)
-            if last_overlay is not None:
-                cv2.imwrite(str(out / f"heatmap_overlay_{ts_str}.jpg"), last_overlay)
-            print(f"Heatmap saved  → {out}/heatmap_{ts_str}.jpg")
-
-        if args.export_ply:
-            if mesh_snapshots:
-                mesh_path = out / f"face_mesh_{ts_str}.ply"
-                export_session_face_mesh(mesh_path, mesh_snapshots)
-                print(f"Face mesh PLY  → {mesh_path}  ({len(mesh_snapshots)} snapshots)")
-
-            if ray_origins:
-                origins    = np.array(ray_origins,    dtype=np.float32)
-                directions = np.array(ray_directions, dtype=np.float32)
-                traj_path  = out / f"gaze_trajectory_{ts_str}.ply"
-                export_gaze_trajectory(traj_path, origins, directions)
-                print(f"Gaze trajectory PLY → {traj_path}  ({len(origins)} points)")
+        print(f"Saved {len(recorder.rows)} frames → {outputs.csv}")
+        print(f"\n{outputs.summary_text}")
+        print(f"Summary saved  → {outputs.summary}")
+        print(f"Heatmap saved  → {outputs.heatmap}")
+        if outputs.face_mesh_ply:
+            print(f"Face mesh PLY  → {outputs.face_mesh_ply}")
+        if outputs.gaze_trajectory_ply:
+            print(f"Gaze trajectory PLY → {outputs.gaze_trajectory_ply}")
 
     finally:
         cap.release()
