@@ -8,7 +8,7 @@ import pandas as pd
 
 from eye_tracker import EyeTracker
 from head_pose import HeadPoseEstimator
-from gaze_analysis import make_accumulator, add_gaze_point, render_heatmap, generate_heatmap
+from gaze_analysis import make_accumulator, add_gaze_point, render_heatmap
 from AOI import AOITracker
 from direction import GazeDirectionEstimator
 from face_mesh_3d import landmarks_to_numpy, export_session_face_mesh, export_gaze_trajectory
