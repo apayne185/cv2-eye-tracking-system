@@ -1,113 +1,185 @@
+"""
+Command-line entry point.
+
+    eyetrack run        track a webcam, file, or stream and save session outputs
+    eyetrack calibrate  fit a per-user gaze calibration and save it
+
+Exit codes: 0 success, 1 runtime failure (e.g. source unavailable),
+2 invalid arguments or config.
+"""
+
 import argparse
+import logging
+import sys
 from pathlib import Path
 
 import cv2
 
-from .calibration import DEFAULT_CALIB_PATH, GazeCalibrator
+from . import __version__
+from .calibration import GazeCalibrator
+from .config import Config, ConfigError, load_config
 from .eye_tracker import EyeTracker
-from .gaze_classifier import DEFAULT_MODEL_PATH, GazeZoneClassifier
+from .gaze_classifier import GazeZoneClassifier
+from .logs import setup_logging
 from .pipeline import FrameProcessor
 from .render import draw_result
 from .session import SessionRecorder
 from .sources import SourceError, VideoSource
 
+log = logging.getLogger("eyetrack")
 
-def parse_args():
-    p = argparse.ArgumentParser(description="Eye Tracking System")
-    p.add_argument(
-        "--source", default="0",
-        help="Webcam index or path to a video file (default: 0)",
-    )
-    p.add_argument(
-        "--output-dir", default="../data",
-        help="Directory for CSV and heatmap output (default: ../data)",
-    )
-    p.add_argument(
-        "--export-ply", action="store_true",
-        help="Export face mesh and gaze trajectory as PLY point clouds on exit",
-    )
-    p.add_argument(
-        "--calibrate", action="store_true",
-        help="Run 5-point gaze calibration before starting the session",
-    )
-    return p.parse_args()
+COMMANDS = ("run", "calibrate")
+_WINDOW = "Eye Tracker"
+_HEATMAP_WARMUP_FRAMES = 10
 
 
-def main():
-    args   = parse_args()
-    out    = Path(args.output_dir)
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="eyetrack", description="Real-time eye tracking")
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--config", type=Path, help="TOML config file (see eyetrack.example.toml)")
+    common.add_argument("--source", help="webcam index, video file, or rtsp/http URL (default: 0)")
+    common.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    common.add_argument("--log-format", choices=["text", "json"])
+
+    run = sub.add_parser("run", parents=[common], help="track gaze and save session outputs")
+    run.add_argument("--output-dir", type=Path, help="where session files go (default: data/)")
+    run.add_argument("--export-ply", action="store_true", default=None,
+                     help="also export face mesh and gaze trajectory point clouds")
+    run.add_argument("--calibrate", action="store_true",
+                     help="run 5-point calibration before the session")
+    run.add_argument("--no-display", dest="display", action="store_false", default=None,
+                     help="headless: no preview window; stop with Ctrl+C or end of input")
+    run.add_argument("--max-frames", type=int, help="stop after N frames")
+
+    sub.add_parser("calibrate", parents=[common], help="run 5-point calibration and save it")
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # `eyetrack` and `eyetrack --source 0` still mean `eyetrack run ...`
+    if not argv or argv[0] not in (*COMMANDS, "-h", "--help", "--version"):
+        argv.insert(0, "run")
+    args = build_parser().parse_args(argv)
+
+    overrides = {k: getattr(args, k, None) for k in (
+        "source", "output_dir", "export_ply", "display", "max_frames", "log_level", "log_format")}
+    try:
+        cfg = load_config(args.config, overrides)
+    except ConfigError as e:
+        print(f"eyetrack: error: {e}", file=sys.stderr)
+        return 2
+    setup_logging(cfg.log_level, cfg.log_format)
+
+    calibrating = args.command == "calibrate" or getattr(args, "calibrate", False)
+    if calibrating and not cfg.display:
+        log.error("calibration needs a display; drop --no-display")
+        return 2
 
     try:
-        source = VideoSource(args.source)
+        source = VideoSource(cfg.source)
     except SourceError as e:
-        print(f"Error: {e}")
-        return
+        log.error(str(e))
+        return 1
 
+    with source:
+        log.info("opened source %s (%dx%d, live=%s)", cfg.source, source.width,
+                 source.height, source.is_live,
+                 extra={"source": cfg.source, "width": source.width,
+                        "height": source.height, "live": source.is_live})
+        tracker = _make_tracker(cfg)
+        if args.command == "calibrate":
+            return 0 if _calibrate(cfg, source, tracker) else 1
+        calibrator = _calibrate(cfg, source, tracker) if args.calibrate else _load_calibration(cfg)
+        return _run(cfg, source, tracker, calibrator)
+
+
+def _make_tracker(cfg: Config) -> EyeTracker:
+    return EyeTracker(ear_blink_threshold=cfg.ear_blink_threshold,
+                      fixation_velocity=cfg.fixation_velocity,
+                      min_fixation_secs=cfg.min_fixation_secs)
+
+
+def _calibrate(cfg: Config, source: VideoSource, tracker: EyeTracker) -> GazeCalibrator | None:
+    log.info("starting 5-point calibration: follow the dot with your eyes")
     try:
-        frame_w, frame_h = source.width, source.height
-        tracker = EyeTracker()
+        calibrator = GazeCalibrator().run(source.cap, tracker, source.width, source.height)
+    finally:
+        cv2.destroyAllWindows()
+    if not calibrator.is_fitted:
+        log.error("calibration did not collect enough samples")
+        return None
+    path = calibrator.save(cfg.calibration_path)
+    log.info("calibration saved to %s", path, extra={"path": str(path)})
+    return calibrator
 
-        # --- calibration ---
-        calibrator = None
-        if args.calibrate:
-            print("Starting 5-point calibration — follow the dot with your eyes.")
-            calibrator = GazeCalibrator().run(source.cap, tracker, frame_w, frame_h)
-            if calibrator.is_fitted:
-                calib_path = calibrator.save()
-                print(f"Calibration saved → {calib_path}")
-        elif DEFAULT_CALIB_PATH.exists():
-            try:
-                calibrator = GazeCalibrator.load(DEFAULT_CALIB_PATH)
-                print(f"Loaded calibration from {DEFAULT_CALIB_PATH}")
-            except Exception as e:
-                print(f"Warning: could not load calibration ({e})")
 
-        zone_clf = None
-        if DEFAULT_MODEL_PATH.exists():
-            try:
-                zone_clf = GazeZoneClassifier.load(DEFAULT_MODEL_PATH)
-                print(f"Loaded zone classifier from {DEFAULT_MODEL_PATH}")
-            except Exception as e:
-                print(f"Warning: could not load zone classifier ({e})")
+def _load_calibration(cfg: Config) -> GazeCalibrator | None:
+    return _load_optional(cfg.calibration_path, GazeCalibrator.load, "calibration")
 
-        proc = FrameProcessor(frame_w, frame_h, calibrator=calibrator,
-                              zone_classifier=zone_clf, tracker=tracker)
-        recorder     = SessionRecorder(frame_w, frame_h, export_ply=args.export_ply)
-        last_overlay = None
 
-        print("Running — press 'q' to quit and save results.")
+def _load_optional(path: Path, loader, what: str):
+    if not path.exists():
+        log.debug("no %s at %s", what, path)
+        return None
+    try:
+        obj = loader(path)
+    except Exception as e:
+        log.warning("could not load %s from %s: %s", what, path, e)
+        return None
+    log.info("loaded %s from %s", what, path)
+    return obj
 
+
+def _run(cfg: Config, source: VideoSource, tracker: EyeTracker,
+         calibrator: GazeCalibrator | None) -> int:
+    zone_clf = _load_optional(cfg.classifier_path, GazeZoneClassifier.load, "zone classifier")
+    proc = FrameProcessor(source.width, source.height, calibrator=calibrator,
+                          zone_classifier=zone_clf, aois=cfg.aois, tracker=tracker)
+    recorder = SessionRecorder(source.width, source.height, export_ply=cfg.export_ply)
+    last_overlay = None
+
+    log.info("running: %s", "press 'q' in the window to stop" if cfg.display
+             else "headless, Ctrl+C to stop")
+    try:
         for frame, ts in source.frames():
             res = proc.process(frame, ts)
             recorder.add(res)
+            if cfg.max_frames is not None and len(recorder.rows) >= cfg.max_frames:
+                break
+            if not cfg.display:
+                continue
             draw_result(frame, res, proc)
-
-            if res.frame > 10:
+            if res.frame > _HEATMAP_WARMUP_FRAMES:
                 last_overlay = recorder.heatmap_overlay(frame)
-                cv2.imshow("Eye Tracker", last_overlay)
-            else:
-                cv2.imshow("Eye Tracker", frame)
-
+            cv2.imshow(_WINDOW, last_overlay if last_overlay is not None else frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
-
-        outputs = recorder.save(out, tracker.fixations, proc.aoi.time_spent, last_overlay)
-        if outputs.csv is None:
-            return
-
-        print(f"Saved {len(recorder.rows)} frames → {outputs.csv}")
-        print(f"\n{outputs.summary_text}")
-        print(f"Summary saved  → {outputs.summary}")
-        print(f"Heatmap saved  → {outputs.heatmap}")
-        if outputs.face_mesh_ply:
-            print(f"Face mesh PLY  → {outputs.face_mesh_ply}")
-        if outputs.gaze_trajectory_ply:
-            print(f"Gaze trajectory PLY → {outputs.gaze_trajectory_ply}")
-
+    except KeyboardInterrupt:
+        log.info("interrupted, saving session")
     finally:
-        source.release()
-        cv2.destroyAllWindows()
+        if cfg.display:
+            cv2.destroyAllWindows()
+
+    outputs = recorder.save(cfg.output_dir, tracker.fixations, proc.aoi.time_spent, last_overlay)
+    if outputs.csv is None:
+        log.warning("no frames processed; nothing saved")
+        return 1
+
+    faces = sum(r["gaze_x"] is not None for r in recorder.rows)
+    log.info("saved %d frames (%d with a face) to %s", len(recorder.rows), faces, outputs.csv,
+             extra={"frames": len(recorder.rows), "face_frames": faces, "csv": str(outputs.csv)})
+    for label, path in (("summary", outputs.summary), ("heatmap", outputs.heatmap),
+                        ("face mesh PLY", outputs.face_mesh_ply),
+                        ("gaze trajectory PLY", outputs.gaze_trajectory_ply)):
+        if path is not None:
+            log.info("%s saved to %s", label, path)
+    print(f"\n{outputs.summary_text}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
