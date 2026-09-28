@@ -17,30 +17,38 @@ class AOITracker:
         self.time_spent = defaultdict(float)
         self._last_ts   = None
 
-    def track(self, frame, gaze_point, ts=None):
+    def update(self, gaze_point, ts=None):
         """
-        Draws all AOIs on frame and accumulates dwell time for the active one.
+        Accumulates dwell time for the AOI containing gaze_point.
         Returns the name of the active AOI, or None.
         Pass ts to use a frame-synchronised timestamp instead of wall clock.
         """
         now    = ts if ts is not None else time.time()
+        gx, gy = gaze_point
         active = None
 
         for name, (x1, y1, x2, y2) in self.aois.items():
-            gx, gy = gaze_point
-            inside = x1 <= gx <= x2 and y1 <= gy <= y2
-
-            color = (0, 255, 0) if inside else (100, 100, 100)
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2 if inside else 1)
-            cv2.putText(frame, name, (x1, y1 - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
-
-            if inside:
+            if x1 <= gx <= x2 and y1 <= gy <= y2:
                 active = name
                 if self._last_ts is not None:
                     self.time_spent[name] += now - self._last_ts
 
         self._last_ts = now
+        return active
+
+    def draw(self, frame, active=None):
+        """Draws all AOIs on frame, highlighting the active one."""
+        for name, (x1, y1, x2, y2) in self.aois.items():
+            inside = name == active
+            color  = (0, 255, 0) if inside else (100, 100, 100)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2 if inside else 1)
+            cv2.putText(frame, name, (x1, y1 - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
+
+    def track(self, frame, gaze_point, ts=None):
+        """update() followed by draw(); returns the active AOI name or None."""
+        active = self.update(gaze_point, ts)
+        self.draw(frame, active)
         return active
 
     def print_summary(self):
