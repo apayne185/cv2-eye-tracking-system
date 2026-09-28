@@ -1,16 +1,9 @@
 name: eyetrack
 channels:
   - conda-forge
-  - defaults
 dependencies:
   - python=3.11
-  - numpy
-  - pandas
-  - matplotlib
-  - scipy
-  - scikit-learn
-  - jupyterlab
   - pip
   - pip:
-      - opencv-python
-      - mediapipe>=0.10.9
+      # single source of truth for versions: requirements*.txt
+      - -r requirements-dev.txt
