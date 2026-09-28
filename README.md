@@ -37,46 +37,50 @@ Real-time eye tracking pipeline built with Python, OpenCV, and MediaPipe FaceMes
 ```bash
 git clone https://github.com/apayne185/cv2-eye-tracking-system.git
 cd cv2-eye-tracking-system
-conda env create -f environment.yml
+conda env create -f environment.yml    # installs the package + dev tools
 conda activate eyetrack
 ```
 
 **pip / venv:**
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt        # runtime only
+pip install -e .                       # the `eyetrack` command + pinned runtime deps
 pip install -r requirements-dev.txt    # + pytest, ruff, pre-commit, jupyterlab
 ```
 
 **Requirements:** Python 3.11 (mediapipe 0.10.9 has no wheels for 3.12+). All versions are pinned in `requirements.txt`.
 
-**Windows note:** tested on Windows 11. The conda env is recommended — a `pytest.ini` is included that suppresses a known conflict between the `dash` pytest plugin and mediapipe's DLL initialisation on Windows.
+**Windows note:** tested on Windows 11. The pytest config disables the `dash` pytest plugin, which conflicts with mediapipe's DLL initialisation on Windows.
 
 ---
 
 ## Usage
 
 ```bash
-# Default: webcam 0
-python src/main.py
+eyetrack run                                  # webcam 0 with live preview (press q to stop)
+eyetrack run --source 1                       # another webcam
+eyetrack run --source path/to/video.mp4       # recorded video
+eyetrack run --source rtsp://camera/stream    # network camera
+eyetrack run --export-ply                     # also export PLY point clouds
+eyetrack run --calibrate                      # 5-point calibration first (saved to models/)
+eyetrack calibrate                            # calibration only
 
-# Specific webcam index
-python src/main.py --source 1
-
-# Process a recorded video file
-python src/main.py --source path/to/video.mp4
-
-# Custom output directory
-python src/main.py --source 0 --output-dir results/
-
-# Export PLY point clouds (face mesh + gaze trajectory)
-python src/main.py --source 0 --export-ply
-
-# Run 5-point calibration before the session (saves to models/)
-python src/main.py --source 0 --calibrate
+# Headless (servers, containers, CI): no window; stops at end of input or Ctrl+C
+eyetrack run --source clip.mp4 --no-display --log-format json
 ```
 
-Press **`q`** to quit — the session CSV and heatmap are saved automatically.
+`python -m eyetrack` works the same way. Sessions are saved to `data/` unless `--output-dir` says otherwise. Exit codes: `0` success, `1` runtime failure (e.g. camera unavailable), `2` invalid arguments or config.
+
+### Per-site configuration
+
+Camera placement, screen layout and viewing distance differ between deployments, so AOI boxes, detection thresholds and model paths live in a TOML file rather than in code:
+
+```bash
+cp eyetrack.example.toml eyetrack.toml   # edit for this site
+eyetrack run --config eyetrack.toml
+```
+
+Precedence is defaults < config file < command-line flags. The config is validated at startup (unknown keys, malformed AOI boxes and non-positive thresholds are rejected with a clear error), so a bad site config fails immediately rather than mid-session.
 
 ---
 
@@ -103,7 +107,7 @@ AOI dwell (seconds):
 | Column | Description |
 |---|---|
 | `frame` | Frame index |
-| `timestamp` | Unix timestamp |
+| `timestamp` | Seconds: Unix time for live sources, time since start for video files |
 | `gaze_x`, `gaze_y` | Iris center in pixel coordinates |
 | `gaze_ratio_h`, `gaze_ratio_v` | Normalized gaze position within eye (0–1) |
 | `pitch`, `yaw`, `roll` | Head Euler angles in degrees |
@@ -118,6 +122,17 @@ AOI dwell (seconds):
 
 ---
 
+## Architecture
+
+```
+VideoSource ──frame, ts──▶ FrameProcessor ──FrameResult──┬──▶ SessionRecorder ──▶ CSV / summary / heatmap / PLY
+(webcam, file,             (FaceMesh, iris, blink,       │
+ rtsp/http)                 fixation, head pose, gaze     └──▶ draw_result ──▶ preview window (optional)
+                            ray, AOI, calibration, zone)
+```
+
+`FrameProcessor` has no side effects: it never draws, prints or writes files. The same pipeline therefore runs interactively, headless, and under test, where a fake tracker feeds it synthetic landmarks so the geometry is exercised without a camera.
+
 ## Project Structure
 
 ```
@@ -126,29 +141,32 @@ cv2-eye-tracking-system/
 │   ├── workflows/ci.yml     # Lint (ruff) + tests with coverage on every push/PR
 │   ├── workflows/codeql.yml # CodeQL security scanning
 │   └── dependabot.yml       # Weekly dependency updates (pip, Actions, pre-commit)
-├── src/
-│   ├── main.py              # Entry point — argparse, main loop, CSV export
-│   ├── eye_tracker.py       # EyeTracker class: iris gaze, EAR blink, fixation
-│   ├── head_pose.py         # HeadPoseEstimator: solvePnP, draw_axes, gaze ray
-│   ├── direction.py         # GazeDirectionEstimator: 2D direction + 3D gaze ray
-│   ├── face_mesh_3d.py      # PLY point cloud export: face mesh + gaze trajectory
+├── src/eyetrack/
+│   ├── cli.py               # `eyetrack run|calibrate` entry point
+│   ├── config.py            # TOML config: defaults < file < CLI flags, validated
+│   ├── sources.py           # VideoSource: webcam / file / stream, frame timestamps
+│   ├── pipeline.py          # FrameProcessor → FrameResult (no side effects)
+│   ├── render.py            # Debug overlays for a FrameResult
+│   ├── session.py           # SessionRecorder: CSV, summary, heatmap, PLY outputs
+│   ├── logs.py              # Text or JSON-lines logging
+│   ├── eye_tracker.py       # MediaPipe FaceMesh, iris gaze, EAR blink, fixation
+│   ├── head_pose.py         # solvePnP head pose, axes, gaze ray projection
+│   ├── direction.py         # Iris + head-pose fusion, 3D gaze ray
+│   ├── calibration.py       # 5-point linear calibration
+│   ├── gaze_classifier.py   # Random Forest attention-zone classifier
+│   ├── aoi.py               # Areas of interest and dwell time
 │   ├── gaze_analysis.py     # Heatmap accumulator and renderer
-│   ├── gaze_classifier.py   # GazeZoneClassifier: sklearn RF pipeline
-│   ├── calibration.py       # GazeCalibrator: 5-point linear calibration
-│   └── AOI.py               # AOITracker class with dwell-time accumulation
-├── notebooks/
-│   ├── analysis.ipynb       # Offline session analysis — plots, heatmap, stats
-│   └── classifier.ipynb     # ML training pipeline — RF vs SVM vs MLP, CV, confusion matrix
-├── tests/                   # pytest suite (conftest.py adds src/ to sys.path)
-├── data/                    # Session output (CSV, heatmap, summary) — gitignored
+│   └── face_mesh_3d.py      # PLY point cloud export
+├── tests/                   # pytest suite, incl. end-to-end CLI runs on generated video
+├── notebooks/               # analysis.ipynb, classifier.ipynb
+├── data/                    # Session output — gitignored
 ├── models/                  # Trained classifier + calibration — gitignored
-├── eye_gaze_heatmap.jpg     # Sample heatmap output
-├── pyproject.toml           # ruff + coverage config
-├── pytest.ini               # Disables dash plugin (Windows mediapipe compatibility)
-├── .pre-commit-config.yaml
+├── eyetrack.example.toml    # Every config key, documented
+├── pyproject.toml           # Package metadata, entry point, pytest/ruff/coverage config
 ├── environment.yml          # conda env (Python 3.11) built from requirements files
 ├── requirements.txt         # Pinned runtime dependencies
-└── requirements-dev.txt     # Test, lint, and notebook tooling
+├── requirements-test.txt    # Pinned CI tools (pytest, ruff)
+└── requirements-dev.txt     # Everything for local development
 ```
 
 ---
@@ -202,14 +220,14 @@ Trains a Random Forest on synthetic gaze data (1800 samples, 3 classes) and demo
 ## Development
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -e . -r requirements-dev.txt
 pre-commit install          # run ruff + hygiene checks on every commit
 
 ruff check src tests        # lint
-pytest --cov                # 74 tests with coverage report
+pytest --cov                # 118 tests, 88% coverage
 ```
 
-The suite covers direction estimation, head pose (solvePnP round-trip), fixation detection, AOI dwell time, heatmap accumulation, PLY export, calibration, and the gaze classifier. The webcam loop in `main.py` is exercised manually.
+The suite covers the full frame pipeline (driven by synthetic FaceMesh landmarks, so iris, blink, solvePnP and gaze-ray code run for real), session outputs, config validation, video timestamps, and end-to-end `eyetrack run` invocations through real MediaPipe on generated video. The interactive calibration window is exercised manually.
 
 ### Continuous integration
 
