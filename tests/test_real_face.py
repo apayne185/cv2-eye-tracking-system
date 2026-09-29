@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 
 from eyetrack.cli import main
+from eyetrack.gaze_classifier import GazeZoneClassifier, generate_training_data
 from eyetrack.pipeline import FrameProcessor
 from eyetrack.sources import VideoSource
 
@@ -76,3 +77,13 @@ def test_cli_run_on_clip(tmp_path):
     assert len(out) == N_FRAMES
     assert out["gaze_x"].notna().mean() >= 0.95
     assert out["timestamp"].iloc[-1] == pytest.approx((N_FRAMES - 1) / 29.97, abs=0.01)
+
+
+def test_sideways_gaze_never_classified_on_screen():
+    # ~60° sideways gaze (head ~47° plus eyes) is clearly off-screen
+    clf = GazeZoneClassifier().train(*generate_training_data(n_per_class=200))
+    with VideoSource(str(CLIP)) as src:
+        proc = FrameProcessor(src.width, src.height, zone_classifier=clf)
+        zones = [proc.process(frame, ts).predicted_zone for frame, ts in src.frames()]
+    assert "on_screen" not in zones
+    assert sum(z is not None for z in zones) >= 0.95 * N_FRAMES
