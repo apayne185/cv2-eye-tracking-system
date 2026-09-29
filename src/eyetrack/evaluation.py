@@ -67,11 +67,26 @@ def predict_fixed(model: GazeZoneClassifier, df: pd.DataFrame) -> pd.Series:
     return out
 
 
+def mirror(X: np.ndarray) -> np.ndarray:
+    """
+    Left-right mirror of feature rows (FEATURES order). Zones are symmetric
+    (20° left of the screen is as peripheral as 20° right), so mirrored
+    copies let a subject looking one way inform one looking the other.
+    """
+    m = X.copy()
+    col = {f: i for i, f in enumerate(FEATURES)}
+    m[:, col["gaze_ratio_h"]] = 1.0 - m[:, col["gaze_ratio_h"]]
+    m[:, col["yaw"]] = -m[:, col["yaw"]]
+    m[:, col["dir_h"]] = -m[:, col["dir_h"]]
+    return m
+
+
 def predict_loso(df: pd.DataFrame, with_synthetic: bool = False,
-                 seed: int = 42) -> pd.Series:
+                 with_mirror: bool = False, seed: int = 42) -> pd.Series:
     """
     Leave-one-subject-out: each subject is predicted by a model trained on
-    every other subject's usable frames (plus synthetic data if asked).
+    every other subject's usable frames, optionally plus their left-right
+    mirror images and/or synthetic data. Test frames are never augmented.
     """
     out = pd.Series(NO_PREDICTION, index=df.index, dtype=object)
     ok = usable(df)
@@ -83,6 +98,8 @@ def predict_loso(df: pd.DataFrame, with_synthetic: bool = False,
             continue
         X = df.loc[train, list(FEATURES)].to_numpy(dtype=np.float32)
         y = df.loc[train, "label"].to_numpy()
+        if with_mirror:
+            X, y = np.vstack([X, mirror(X)]), np.concatenate([y, y])
         if with_synthetic:
             X, y = np.vstack([X, X_syn]), np.concatenate([y, y_syn])
         model = GazeZoneClassifier(n_estimators=100, random_state=seed).train(X, y)
@@ -112,8 +129,10 @@ def evaluate(name: str, df: pd.DataFrame, predictions: pd.Series) -> Evaluation:
 def run_all(df: pd.DataFrame) -> list[Evaluation]:
     return [
         evaluate("A. synthetic only", df, predict_fixed(synthetic_model(), df)),
-        evaluate("B. real only (LOSO)", df, predict_loso(df)),
-        evaluate("C. synthetic + real (LOSO)", df, predict_loso(df, with_synthetic=True)),
+        evaluate("B. real (LOSO)", df, predict_loso(df)),
+        evaluate("C. real + mirrored (LOSO)", df, predict_loso(df, with_mirror=True)),
+        evaluate("D. synthetic + real + mirrored (LOSO)", df,
+                 predict_loso(df, with_synthetic=True, with_mirror=True)),
     ]
 
 

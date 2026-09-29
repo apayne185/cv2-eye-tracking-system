@@ -4,6 +4,7 @@ import pytest
 
 from eyetrack.evaluation import (
     evaluate,
+    mirror,
     predict_fixed,
     predict_loso,
     render_report,
@@ -66,3 +67,31 @@ def test_report_renders_all_sections():
     for heading in ("# Attention-zone evaluation", "## Data", "## Summary", "## A. test",
                     "confusion matrix", "per subject"):
         assert heading in text
+
+
+def test_mirror_flips_horizontal_features_only():
+    X = np.array([[0.7, 0.4, 20.0, 0.3, -0.1]], dtype=np.float32)   # FEATURES order
+    np.testing.assert_allclose(mirror(X), [[0.3, 0.4, -20.0, -0.3, -0.1]], rtol=1e-6)
+    np.testing.assert_allclose(mirror(mirror(X)), X)
+
+
+def test_mirrored_loso_still_does_not_leak():
+    df = pd.concat([_frames("s1", "on_screen", 0.0), _frames("s2", "peripheral", 5.0),
+                    _frames("s3", "away", 10.0)], ignore_index=True)
+    assert (predict_loso(df, with_mirror=True) != df["label"]).all()
+
+
+def test_mirroring_lets_one_side_inform_the_other():
+    # peripheral subjects in training all look right; the held-out one looks left
+    def side(subject, sign, seed):
+        d = _frames(subject, "peripheral", 0.0, seed=seed)
+        d[list(FEATURES)] = [0.5 + 0.1 * sign, 0.5, -15.0 * sign, 0.35 * sign, 0.0]
+        return d
+    on = [_frames(f"on{i}", "on_screen", 0.0, seed=i) for i in range(3)]
+    for d in on:
+        d[list(FEATURES)] = [0.5, 0.5, 0.0, 0.0, 0.0]
+    df = pd.concat(on + [side("r1", +1, 7), side("r2", +1, 8), side("left", -1, 9)],
+                   ignore_index=True)
+    left = df["subject"] == "left"
+    assert (predict_loso(df)[left] != "peripheral").all()
+    assert (predict_loso(df, with_mirror=True)[left] == "peripheral").all()
