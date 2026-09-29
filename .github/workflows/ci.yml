@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install $(grep '^ruff==' requirements-test.txt)
-      - run: ruff check src tests
+      - run: ruff check .
 
   test:
     runs-on: ubuntu-latest

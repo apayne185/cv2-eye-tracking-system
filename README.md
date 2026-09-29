@@ -25,7 +25,7 @@ Real-time eye tracking pipeline built with Python, OpenCV, and MediaPipe FaceMes
 | **Fixation detection** | Velocity-based classifier: gaze velocity < 25 px/s for ≥ 100 ms = fixation. Completed fixations logged with duration and position. |
 | **AOI tracking** | Configurable rectangular Areas of Interest with per-AOI dwell time accumulation. |
 | **Heatmap overlay** | Gaussian-blurred JET colormap overlaid on the live frame. |
-| **Gaze attention classifier** | sklearn Random Forest trained on 5 gaze features → predicts `on_screen` / `peripheral` / `away` with >95% CV accuracy. Demonstrated in `notebooks/classifier.ipynb`. |
+| **Gaze attention classifier** | sklearn Random Forest on 5 gaze features → `on_screen` / `peripheral` / `away`. Evaluated on held-out people in public-domain video: macro-F1 **0.80** when trained on real clips with mirror augmentation, versus 0.57 for the synthetic-only model (see [Evaluation on real video](#evaluation-on-real-video)). |
 | **5-point gaze calibration** | `--calibrate` displays fixation targets, collects per-user iris ratio samples, and fits a `LinearRegression` mapping iris space → screen space. Saved to `models/calibration.json` and auto-loaded on subsequent runs. |
 | **CSV export** | Per-frame record saved to `data/gaze_<timestamp>.csv` on exit. |
 
@@ -149,6 +149,8 @@ cv2-eye-tracking-system/
 │   ├── render.py            # Debug overlays for a FrameResult
 │   ├── session.py           # SessionRecorder: CSV, summary, heatmap, PLY outputs
 │   ├── logs.py              # Text or JSON-lines logging
+│   ├── dataset.py           # Labelled real-clip manifest, partial download, feature extraction
+│   ├── evaluation.py        # Leave-one-subject-out zone evaluation and report
 │   ├── eye_tracker.py       # MediaPipe FaceMesh, iris gaze, EAR blink, fixation
 │   ├── head_pose.py         # 468-point solvePnP head pose, axes, gaze ray projection
 │   ├── direction.py         # Iris + head-pose fusion, 3D gaze ray
@@ -160,6 +162,9 @@ cv2-eye-tracking-system/
 │   └── assets/              # MediaPipe canonical face model (Apache-2.0)
 ├── tests/                   # pytest suite, incl. end-to-end CLI runs on generated video
 ├── notebooks/               # analysis.ipynb, classifier.ipynb
+├── datasets/real_clips/     # Labelled segment manifest (videos not stored) + README
+├── scripts/evaluate_zones.py  # Real-video evaluation → reports/zone_eval.md
+├── reports/                 # Generated evaluation report
 ├── data/                    # Session output — gitignored
 ├── models/                  # Trained classifier + calibration — gitignored
 ├── eyetrack.example.toml    # Every config key, documented
@@ -209,12 +214,40 @@ conda activate eyetrack
 jupyter lab notebooks/classifier.ipynb
 ```
 
-Trains a Random Forest on synthetic gaze data (1800 samples, 3 classes) and demonstrates:
+Trains a Random Forest on synthetic gaze data (1800 samples, 3 classes). Its 98% accuracy is measured on held-out *synthetic* data; on real faces the synthetic model scores far lower (next section). The notebook demonstrates:
 - Feature distribution visualisation
 - Train/test split with classification report
 - 5-fold cross-validation vs SVM and MLP
 - Confusion matrix and feature importances
 - Applying the model to a real session CSV (Section 7)
+
+---
+
+## Evaluation on real video
+
+The zone classifier was built on synthetic data, so its accuracy on real people was unknown. `datasets/real_clips/` defines a small labelled set: 36 segments of public-domain NASA footage, 13 identified speakers plus B-roll, labelled `on_screen` (looking into the lens), `peripheral` (at someone beside the camera) or `away`. Videos aren't stored in the repo; the script downloads just the parts it needs.
+
+```bash
+python scripts/evaluate_zones.py            # writes reports/zone_eval.md
+python scripts/evaluate_zones.py --save-model models/gaze_zone_classifier.joblib
+```
+
+Every real-data model is scored **leave-one-subject-out**: each person is predicted by a model that never saw them. "System" scores count a frame with no detected face as `away`, which is how a person in profile usually appears.
+
+| Model | Macro-F1 | Accuracy | on_screen recall | peripheral recall | away recall |
+|---|---|---|---|---|---|
+| Synthetic only (original) | 0.57 | 0.81 | 1.00 | 0.16 | 0.40 |
+| Real | 0.67 | 0.88 | 0.96 | 0.74 | 0.25 |
+| **Real + mirrored** | **0.80** | **0.90** | 0.96 | 0.74 | 0.57 |
+| Synthetic + real + mirrored | 0.70 | 0.87 | 0.98 | 0.57 | 0.39 |
+
+What this showed:
+- **The synthetic model calls almost all real "beside the camera" gaze `on_screen`.** Real interview gaze is subtler (head 10–25°, small iris offset) than the synthetic generator assumes.
+- **Mirror augmentation matters.** Three of four `peripheral` speakers look to image right; the fourth was never recognised until training frames were also added left-right mirrored.
+- **Adding synthetic data to real data hurts** once real examples exist.
+- Building the dataset also surfaced three pipeline bugs (head pitch ≈ ±180°, reversed gaze-direction signs, yaw flipping on frontal faces), all fixed with regression tests.
+
+Caveats: 14 subjects, one annotator, only two `away` sources, and broadcast footage is easier than typical webcam use. Treat these numbers as a baseline, not a benchmark. Full report: [`reports/zone_eval.md`](reports/zone_eval.md).
 
 ---
 
@@ -224,8 +257,8 @@ Trains a Random Forest on synthetic gaze data (1800 samples, 3 classes) and demo
 pip install -e . -r requirements-dev.txt
 pre-commit install          # run ruff + hygiene checks on every commit
 
-ruff check src tests        # lint
-pytest --cov                # 145 tests, 88% coverage
+ruff check .                # lint
+pytest --cov                # 167 tests, 88% coverage
 ```
 
 The suite covers the full frame pipeline (driven by synthetic FaceMesh landmarks, so iris, blink, solvePnP and gaze-ray code run for real), session outputs, config validation, video timestamps, and end-to-end `eyetrack run` invocations through real MediaPipe. `tests/test_real_face.py` runs the pipeline on a 4-second public-domain NASA interview clip and checks properties a synthetic face can't: detection rate, frame-to-frame pose stability, and angles in a physically plausible range. The interactive calibration window is exercised manually.
