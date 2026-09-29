@@ -10,6 +10,7 @@ from eyetrack.evaluation import (
     render_report,
     score,
     synthetic_model,
+    train_final,
     usable,
 )
 from eyetrack.gaze_classifier import FEATURES
@@ -95,3 +96,10 @@ def test_mirroring_lets_one_side_inform_the_other():
     left = df["subject"] == "left"
     assert (predict_loso(df)[left] != "peripheral").all()
     assert (predict_loso(df, with_mirror=True)[left] == "peripheral").all()
+
+
+def test_train_final_uses_all_subjects(tmp_path):
+    df = pd.concat([_frames("s1", "on_screen", 0.0), _frames("s2", "away", 10.0)], ignore_index=True)
+    model = train_final(df)
+    assert set(predict_fixed(model, df)) == {"on_screen", "away"}
+    assert model.save(tmp_path / "m.joblib").exists()

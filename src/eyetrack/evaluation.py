@@ -107,6 +107,16 @@ def predict_loso(df: pd.DataFrame, with_synthetic: bool = False,
     return out
 
 
+def train_final(df: pd.DataFrame, with_mirror: bool = True, seed: int = 42) -> GazeZoneClassifier:
+    """Model for deployment: every subject's usable frames (+ mirror images)."""
+    ok = usable(df)
+    X = df.loc[ok, list(FEATURES)].to_numpy(dtype=np.float32)
+    y = df.loc[ok, "label"].to_numpy()
+    if with_mirror:
+        X, y = np.vstack([X, mirror(X)]), np.concatenate([y, y])
+    return GazeZoneClassifier(n_estimators=100, random_state=seed).train(X, y)
+
+
 @dataclass
 class Evaluation:
     name: str
