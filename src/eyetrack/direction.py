@@ -6,6 +6,27 @@ import numpy as np
 _EYE_MODEL_MIDPOINT = np.array([0.0, 170.0, -135.0])
 
 
+EYE_SCALE  = 1.4    # iris deviation from centre (±0.5) → 2-D direction
+HEAD_SCALE = 0.014  # degrees of yaw/pitch → 2-D direction
+
+
+def fuse_direction(ratio_h, ratio_v, yaw, pitch):
+    """
+    Combines iris ratios and head angles into (dir_h, dir_v) in [-1, 1].
+    Works on scalars or numpy arrays.
+
+    Image-space convention, matching the 3-D gaze ray:
+      dir_h: -1 = toward image left,  +1 = toward image right
+      dir_v: -1 = toward image top,   +1 = toward image bottom
+    Head angles follow HeadPoseEstimator: +yaw turns the face toward image
+    left, +pitch tilts it down, so yaw enters with a minus sign and pitch
+    with a plus sign.
+    """
+    dir_h = np.clip((ratio_h - 0.5) * EYE_SCALE - yaw   * HEAD_SCALE, -1.0, 1.0)
+    dir_v = np.clip((ratio_v - 0.5) * EYE_SCALE + pitch * HEAD_SCALE, -1.0, 1.0)
+    return dir_h, dir_v
+
+
 class GazeDirectionEstimator:
     """
     Fuses iris gaze ratios with head-pose angles to estimate gaze direction,
@@ -22,9 +43,6 @@ class GazeDirectionEstimator:
       physical ray (origin + unit direction) expressed in mm.
     """
 
-    _EYE_SCALE  = 1.4    # iris deviation from centre (±0.5) → 2-D direction
-    _HEAD_SCALE = 0.014  # degrees of yaw/pitch → 2-D direction
-
     # Approximate angular range of voluntary iris movement.
     # Full ratio range [0, 1] maps to ±half of these values.
     _EYE_FOV_H = 60.0   # degrees horizontal
@@ -34,15 +52,12 @@ class GazeDirectionEstimator:
                  yaw: float, pitch: float) -> tuple[float, float]:
         """
         ratio_h, ratio_v : iris position in [0, 1], centre = 0.5
-        yaw              : head yaw in degrees  (+ve = turned right)
-        pitch            : head pitch in degrees (+ve = tilted down in OpenCV convention)
-        Returns (dir_h, dir_v) clamped to [-1, 1].
+        yaw              : head yaw in degrees   (+ve = face turned toward image left)
+        pitch            : head pitch in degrees (+ve = face tilted down)
+        Returns (dir_h, dir_v) clamped to [-1, 1]; see fuse_direction().
         """
-        iris_h = (ratio_h - 0.5) * self._EYE_SCALE
-        iris_v = (ratio_v - 0.5) * self._EYE_SCALE
-        dir_h  = float(np.clip(iris_h + yaw   * self._HEAD_SCALE, -1.0, 1.0))
-        dir_v  = float(np.clip(iris_v - pitch * self._HEAD_SCALE, -1.0, 1.0))
-        return dir_h, dir_v
+        dir_h, dir_v = fuse_direction(ratio_h, ratio_v, yaw, pitch)
+        return float(dir_h), float(dir_v)
 
     def to_screen_point(self, dir_h: float, dir_v: float,
                         screen_w: int, screen_h: int) -> tuple[int, int]:

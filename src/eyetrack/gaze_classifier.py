@@ -14,6 +14,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .direction import fuse_direction
+
 ZONES    = ('on_screen', 'peripheral', 'away')
 FEATURES = ('gaze_ratio_h', 'gaze_ratio_v', 'yaw', 'dir_h', 'dir_v')
 
@@ -36,12 +38,6 @@ def generate_training_data(n_per_class: int = 600,
     rows: list[np.ndarray] = []
     labels: list[str] = []
 
-    def _fused(ratio_h, ratio_v, yaw, pitch):
-        """Replicates GazeDirectionEstimator.estimate() for label generation."""
-        dh = np.clip((ratio_h - 0.5) * 1.4 + yaw   * 0.014, -1.0, 1.0)
-        dv = np.clip((ratio_v - 0.5) * 1.4 - pitch  * 0.014, -1.0, 1.0)
-        return dh, dv
-
     n = n_per_class
 
     # --- on_screen ---
@@ -49,7 +45,7 @@ def generate_training_data(n_per_class: int = 600,
     rv    = rng.normal(0.44, 0.06, n).clip(0.28, 0.62)
     yaw   = rng.normal(0,  8, n).clip(-22,  22)
     pitch = rng.normal(5,  5, n).clip(-12,  18)
-    dh, dv = _fused(rh, rv, yaw, pitch)
+    dh, dv = fuse_direction(rh, rv, yaw, pitch)
     rows.append(np.stack([rh, rv, yaw, dh, dv], axis=1))
     labels.extend(['on_screen'] * n)
 
@@ -62,7 +58,7 @@ def generate_training_data(n_per_class: int = 600,
     rv    = rng.normal(0.46, 0.09, n).clip(0.20, 0.76)
     yaw   = rng.uniform(-45, 45, n)
     pitch = rng.normal(0, 10, n).clip(-25, 25)
-    dh, dv = _fused(rh, rv, yaw, pitch)
+    dh, dv = fuse_direction(rh, rv, yaw, pitch)
     rows.append(np.stack([rh, rv, yaw, dh, dv], axis=1))
     labels.extend(['peripheral'] * n)
 
@@ -74,7 +70,7 @@ def generate_training_data(n_per_class: int = 600,
     yaw_m = rng.uniform(42, 62, n)
     yaw   = yaw_m * rng.choice([-1, 1], n)
     pitch = rng.uniform(-30, 30, n)
-    dh, dv = _fused(rh, rv, yaw, pitch)
+    dh, dv = fuse_direction(rh, rv, yaw, pitch)
     rows.append(np.stack([rh, rv, yaw, dh, dv], axis=1))
     labels.extend(['away'] * n)
 

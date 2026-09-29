@@ -114,7 +114,7 @@ AOI dwell (seconds):
 | `left_ear`, `right_ear` | Eye Aspect Ratio per eye |
 | `is_blink` | Boolean |
 | `is_fixation` | Boolean |
-| `dir_h`, `dir_v` | Estimated gaze direction in [-1, 1] (iris + head pose fused) |
+| `dir_h`, `dir_v` | Estimated gaze direction in [-1, 1] (iris + head pose fused); +`dir_h` = toward image right, +`dir_v` = toward image bottom |
 | `ray_ox`, `ray_oy`, `ray_oz` | 3D gaze ray origin (eye midpoint in camera coords, mm) |
 | `ray_dx`, `ray_dy`, `ray_dz` | 3D gaze ray unit direction vector in camera coords |
 | `active_aoi` | Name of active Area of Interest, or null |
@@ -183,7 +183,7 @@ The earlier approach averaged the positions of all eye *outline* landmarks, whic
 The velocity threshold (25 px/s) follows the I-VT (Identification by Velocity Threshold) algorithm common in psychophysics research. Saccades typically exceed 300 px/s; the threshold is conservative to reduce noise from head micro-movements.
 
 **Gaze direction fusion**  
-Iris ratios alone are relative to the eye socket — they correctly detect eye movement but are blind to head rotation. `solvePnP` yaw and pitch capture head orientation but ignore where the eyes point within the socket. `GazeDirectionEstimator` linearly combines both signals: `dir_h = iris_deviation * EYE_SCALE + yaw * HEAD_SCALE`. The weights are empirically tuned; run `--calibrate` to fit a per-user `LinearRegression` that maps iris ratios to screen coordinates, improving absolute accuracy.
+Iris ratios alone are relative to the eye socket — they correctly detect eye movement but are blind to head rotation. `solvePnP` yaw and pitch capture head orientation but ignore where the eyes point within the socket. `fuse_direction` linearly combines both signals in image space: `dir_h = iris_deviation * EYE_SCALE - yaw * HEAD_SCALE` and `dir_v = iris_deviation * EYE_SCALE + pitch * HEAD_SCALE` (+yaw turns the face toward image left, +pitch tilts it down). Tests require the fused direction to point the same way as the 3D gaze ray, which rotates the iris direction by the full head-pose matrix. The weights are empirically tuned; run `--calibrate` to fit a per-user `LinearRegression` that maps iris ratios to screen coordinates, improving absolute accuracy.
 
 **PLY point clouds and the gaze trajectory**  
 The face mesh export writes MediaPipe's 478 per-landmark 3D coordinates (x, y in pixel space; z at the same relative scale) as a binary PLY file — the format used by depth cameras, LiDAR scanners, and 3D reconstruction pipelines. The gaze trajectory cloud projects each session's 3D gaze rays onto a virtual plane at 500 mm depth, producing a spatial map of where the subject's attention landed. Both files can be opened directly in MeshLab, CloudCompare, or Open3D for inspection.
