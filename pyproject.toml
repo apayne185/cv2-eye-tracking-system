@@ -22,6 +22,9 @@ dependencies = { file = ["requirements.txt"] }
 where = ["src"]
 include = ["eyetrack*"]
 
+[tool.setuptools.package-data]
+eyetrack = ["assets/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # dash's pytest plugin conflicts with mediapipe's DLL initialisation on Windows

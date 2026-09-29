@@ -5,47 +5,37 @@ import numpy as np
 import pytest
 
 from eyetrack.eye_tracker import EyeTracker
-from eyetrack.head_pose import _LM_IDS, _MODEL_3D, HeadPoseEstimator
+from eyetrack.head_pose import _MODEL_3D, HeadPoseEstimator
 
 W, H = 640, 480
 
 
-def _pt(x, y):
-    return SimpleNamespace(x=x / W, y=y / H, z=0.0)
+def project_face(rvec, tvec, w=W, h=H):
+    """
+    478 FaceMesh-style landmarks from the canonical face model at a known
+    pose: all 468 mesh points projected, irises centred in each eye.
+    """
+    est = HeadPoseEstimator(w, h)
+    pts, _ = cv2.projectPoints(_MODEL_3D, rvec, tvec, est.K, est.D)
+    pts = pts.reshape(-1, 2)
+    lm = [SimpleNamespace(x=x / w, y=y / h, z=0.0) for x, y in pts]
+
+    # iris centre = midpoint of the eye corners (x) and lids (y);
+    # 469-472 / 474-477 are the iris rings, placed on the centre
+    for corners, lids, first in (((33, 133), (159, 145), 468), ((263, 362), (386, 374), 473)):
+        cx, cy = pts[list(corners), 0].mean(), pts[list(lids), 1].mean()
+        lm.extend(SimpleNamespace(x=cx / w, y=cy / h, z=0.0) for _ in range(5))
+        assert len(lm) == first + 5
+    return SimpleNamespace(landmark=lm)
+
+
+# rvec for a head squarely facing the camera (model is y-up, camera y-down)
+FRONTAL = np.array([[np.pi], [0.0], [0.0]])
 
 
 def synthetic_face_landmarks():
-    """
-    478 FaceMesh-style landmarks for a frontal face: head-pose points are
-    projected from the 3D model at a known pose, eyes are open with the
-    iris centred, and every other landmark sits at the frame centre.
-    """
-    lm = [_pt(W / 2, H / 2) for _ in range(478)]
-
-    est = HeadPoseEstimator(W, H)
-    rvec = np.array([[np.pi], [0.0], [0.0]])
-    tvec = np.array([[0.0], [0.0], [2500.0]])
-    pts, _ = cv2.projectPoints(_MODEL_3D, rvec, tvec, est.K, est.D)
-    for i, (x, y) in zip(_LM_IDS, pts.reshape(-1, 2), strict=True):
-        lm[i] = _pt(x, y)
-
-    # Eye boxes hang off the projected outer corners (33, 263 are also
-    # head-pose points, so they must stay where the pose put them):
-    # inner corners, lids, EAR points, and a centred iris.
-    for outer, inner, top, bot, ear_ids, iris, inward in (
-        (33, 133, 159, 145, (160, 158, 153, 144), 468, +1),
-        (263, 362, 386, 374, (387, 385, 380, 373), 473, -1),
-    ):
-        ox, ey = lm[outer].x * W, lm[outer].y * H
-        cx = ox + inward * 20
-        lm[inner] = _pt(ox + inward * 40, ey)
-        lm[top], lm[bot] = _pt(cx, ey - 10), _pt(cx, ey + 10)
-        up1, up2, lo2, lo1 = ear_ids
-        lm[up1], lm[up2] = _pt(cx - 7, ey - 10), _pt(cx + 7, ey - 10)
-        lm[lo2], lm[lo1] = _pt(cx + 7, ey + 10), _pt(cx - 7, ey + 10)
-        lm[iris] = _pt(cx, ey)
-
-    return SimpleNamespace(landmark=lm)
+    """Frontal face 60 cm from the camera, eyes open, gaze straight ahead."""
+    return project_face(FRONTAL, np.array([[0.0], [0.0], [600.0]]))
 
 
 class FakeEyeTracker(EyeTracker):

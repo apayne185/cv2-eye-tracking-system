@@ -1,10 +1,7 @@
 import cv2
 import numpy as np
 
-# Average of the two eye-corner landmarks in the 6-point face model (mm).
-# Used as the 3D origin of the gaze ray.
-_EYE_MODEL_MIDPOINT = np.array([0.0, 170.0, -135.0])
-
+from .head_pose import EYE_MIDPOINT_MODEL
 
 EYE_SCALE  = 1.4    # iris deviation from centre (±0.5) → 2-D direction
 HEAD_SCALE = 0.014  # degrees of yaw/pitch → 2-D direction
@@ -103,7 +100,7 @@ class GazeDirectionEstimator:
         Rx = np.array([[1, 0, 0],  [0, cv_, -sv], [0, sv, cv_]])
         d_head = Ry @ Rx @ np.array([0.0, 0.0, 1.0])
 
-        origin    = R @ _EYE_MODEL_MIDPOINT + t
+        origin    = R @ EYE_MIDPOINT_MODEL + t
         direction = R @ d_head
         direction = direction / (np.linalg.norm(direction) + 1e-9)
 

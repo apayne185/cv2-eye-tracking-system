@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from eyetrack.direction import GazeDirectionEstimator
+from eyetrack.head_pose import EYE_MIDPOINT_MODEL
 
 
 def test_centered_iris_no_head_movement_is_origin():
@@ -139,5 +140,4 @@ def test_ray_origin_matches_eye_midpoint_at_identity():
     t = np.zeros((3, 1))
     origin, _ = est.gaze_ray_3d(0.5, 0.5, R, t)
     # With identity pose and zero translation, origin = eye midpoint in model space
-    expected = np.array([0.0, 170.0, -135.0])
-    assert np.allclose(origin, expected, atol=1e-6)
+    assert np.allclose(origin, EYE_MIDPOINT_MODEL, atol=1e-6)
