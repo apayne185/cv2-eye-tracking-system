@@ -60,6 +60,15 @@ class FakeEyeTracker(EyeTracker):
         return SimpleNamespace(multi_face_landmarks=faces)
 
 
+@pytest.fixture(autouse=True)
+def isolated_cwd(tmp_path, monkeypatch):
+    """
+    Run each test from an empty directory so default paths (models/,
+    data/) never pick up a developer's local files; CI has none.
+    """
+    monkeypatch.chdir(tmp_path)
+
+
 @pytest.fixture
 def frame():
     return np.zeros((H, W, 3), dtype=np.uint8)
