@@ -25,9 +25,11 @@ def test_face_populates_gaze_pose_and_ray(frame, face_tracker):
     assert res.face_detected
     assert res.gaze_ratio_h == pytest.approx(0.5, abs=0.01)
     assert res.gaze_ratio_v == pytest.approx(0.5, abs=0.01)
-    assert (res.gaze_x, res.gaze_y) == (320, 200)
+    assert res.gaze_x == 320                      # face is centred horizontally
     assert not res.is_blink
-    assert res.pitch is not None and res.yaw is not None
+    # synthetic head squarely faces the camera
+    assert (res.pitch, res.yaw, res.roll) == pytest.approx((0, 0, 0), abs=0.5)
+    assert -1 < res.dir_v < 1
     assert res.dir_h is not None
     assert np.linalg.norm(res.ray_direction) == pytest.approx(1.0)
     assert res.active_aoi == "Center"

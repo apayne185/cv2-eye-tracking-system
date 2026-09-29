@@ -29,17 +29,21 @@ def synthetic_face_landmarks():
     for i, (x, y) in zip(_LM_IDS, pts.reshape(-1, 2), strict=True):
         lm[i] = _pt(x, y)
 
-    # eye box: outer/inner corners, top/bottom lids, EAR points, iris centre
-    for outer, inner, top, bot, ear_ids, iris, cx in (
-        (33, 133, 159, 145, (160, 158, 153, 144), 468, 280),
-        (263, 362, 386, 374, (387, 385, 380, 373), 473, 360),
+    # Eye boxes hang off the projected outer corners (33, 263 are also
+    # head-pose points, so they must stay where the pose put them):
+    # inner corners, lids, EAR points, and a centred iris.
+    for outer, inner, top, bot, ear_ids, iris, inward in (
+        (33, 133, 159, 145, (160, 158, 153, 144), 468, +1),
+        (263, 362, 386, 374, (387, 385, 380, 373), 473, -1),
     ):
-        lm[outer], lm[inner] = _pt(cx - 20, 200), _pt(cx + 20, 200)
-        lm[top], lm[bot] = _pt(cx, 190), _pt(cx, 210)
+        ox, ey = lm[outer].x * W, lm[outer].y * H
+        cx = ox + inward * 20
+        lm[inner] = _pt(ox + inward * 40, ey)
+        lm[top], lm[bot] = _pt(cx, ey - 10), _pt(cx, ey + 10)
         up1, up2, lo2, lo1 = ear_ids
-        lm[up1], lm[up2] = _pt(cx - 7, 190), _pt(cx + 7, 190)
-        lm[lo2], lm[lo1] = _pt(cx + 7, 210), _pt(cx - 7, 210)
-        lm[iris] = _pt(cx, 200)
+        lm[up1], lm[up2] = _pt(cx - 7, ey - 10), _pt(cx + 7, ey - 10)
+        lm[lo2], lm[lo1] = _pt(cx + 7, ey + 10), _pt(cx - 7, ey + 10)
+        lm[iris] = _pt(cx, ey)
 
     return SimpleNamespace(landmark=lm)
 

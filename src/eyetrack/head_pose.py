@@ -14,6 +14,13 @@ _MODEL_3D = np.array([
 
 _LM_IDS = [1, 152, 33, 263, 61, 291]
 
+# The model is y-up with the face toward -z, while camera coordinates are
+# y-down and z-forward, so solvePnP's rotation for a head squarely facing
+# the camera is a 180° turn about x. Undoing that before decomposing makes
+# a frontal pose read (0, 0, 0) instead of pitch ≈ ±180°, and keeps
+# RQDecomp3x3 on a single branch so yaw can't jump to 180° - yaw.
+_MODEL_TO_CAMERA = np.diag([1.0, -1.0, -1.0])
+
 
 class HeadPoseEstimator:
     def __init__(self, frame_w, frame_h):
@@ -48,7 +55,7 @@ class HeadPoseEstimator:
         self._nose = pts2d[0].astype(int)
 
         rmat, _ = cv2.Rodrigues(rvec)
-        angles  = cv2.RQDecomp3x3(rmat)[0]       # (pitch, yaw, roll) in degrees
+        angles  = cv2.RQDecomp3x3(rmat @ _MODEL_TO_CAMERA)[0]   # (pitch, yaw, roll) in degrees
         return float(angles[0]), float(angles[1]), float(angles[2])
 
     def draw_axes(self, frame, lms=None):
