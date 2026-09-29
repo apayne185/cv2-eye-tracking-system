@@ -2,7 +2,8 @@
 
 ## face_clip.mp4
 
-4-second, 640×480 clip of a NASA astronaut being interviewed, used for
+4-second, 640×480 clip of Emily Furfaro (NASA Communications) speaking
+to an off-camera interviewer, head turned ~40° from the lens. Used for
 end-to-end tests of the real MediaPipe pipeline (tests/test_real_face.py).
 
 - **Source:** [Annular Solar Eclipse Broadcast Packages (SVS14622 – Video Package 6: ISS Astronaut Video)](https://commons.wikimedia.org/wiki/File:Annular_Solar_Eclipse_Broadcast_Packages_(SVS14622_-_VIDEO_PACKAGE_6-_ISS_Astronaut_Video_).webm),
