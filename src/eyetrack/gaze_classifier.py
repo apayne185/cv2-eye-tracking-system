@@ -14,10 +14,12 @@ from pathlib import Path
 
 import numpy as np
 
+from .direction import fuse_direction
+
 ZONES    = ('on_screen', 'peripheral', 'away')
 FEATURES = ('gaze_ratio_h', 'gaze_ratio_v', 'yaw', 'dir_h', 'dir_v')
 
-DEFAULT_MODEL_PATH = Path(__file__).parent.parent / 'models' / 'gaze_zone_classifier.joblib'
+DEFAULT_MODEL_PATH = Path('models') / 'gaze_zone_classifier.joblib'
 
 
 def generate_training_data(n_per_class: int = 600,
@@ -36,12 +38,6 @@ def generate_training_data(n_per_class: int = 600,
     rows: list[np.ndarray] = []
     labels: list[str] = []
 
-    def _fused(ratio_h, ratio_v, yaw, pitch):
-        """Replicates GazeDirectionEstimator.estimate() for label generation."""
-        dh = np.clip((ratio_h - 0.5) * 1.4 + yaw   * 0.014, -1.0, 1.0)
-        dv = np.clip((ratio_v - 0.5) * 1.4 - pitch  * 0.014, -1.0, 1.0)
-        return dh, dv
-
     n = n_per_class
 
     # --- on_screen ---
@@ -49,20 +45,27 @@ def generate_training_data(n_per_class: int = 600,
     rv    = rng.normal(0.44, 0.06, n).clip(0.28, 0.62)
     yaw   = rng.normal(0,  8, n).clip(-22,  22)
     pitch = rng.normal(5,  5, n).clip(-12,  18)
-    dh, dv = _fused(rh, rv, yaw, pitch)
+    dh, dv = fuse_direction(rh, rv, yaw, pitch)
     rows.append(np.stack([rh, rv, yaw, dh, dv], axis=1))
     labels.extend(['on_screen'] * n)
 
     # --- peripheral ---
+    # Half the samples have the iris displaced (any head angle), half have
+    # the iris near centre with a moderate head turn; without the second
+    # group a turned head with centred eyes fell outside every class.
     # Explicit full-length halves avoid the n//2+n//2 = n-1 trap on odd n
     half = n // 2
-    rh = np.concatenate([rng.uniform(0.25, 0.38, half),
-                         rng.uniform(0.62, 0.75, n - half)])
-    rng.shuffle(rh)
+    n_eyes = n - half
+    eyes_off = np.concatenate([rng.uniform(0.25, 0.38, n_eyes // 2),
+                               rng.uniform(0.62, 0.75, n_eyes - n_eyes // 2)])
+    rh = np.concatenate([eyes_off, rng.normal(0.50, 0.06, half).clip(0.32, 0.68)])
+    head_turn = rng.uniform(25, 45, half) * rng.choice([-1, 1], half)
+    yaw = np.concatenate([rng.uniform(-45, 45, n_eyes), head_turn])
+    order = rng.permutation(n)
+    rh, yaw = rh[order], yaw[order]
     rv    = rng.normal(0.46, 0.09, n).clip(0.20, 0.76)
-    yaw   = rng.uniform(-45, 45, n)
     pitch = rng.normal(0, 10, n).clip(-25, 25)
-    dh, dv = _fused(rh, rv, yaw, pitch)
+    dh, dv = fuse_direction(rh, rv, yaw, pitch)
     rows.append(np.stack([rh, rv, yaw, dh, dv], axis=1))
     labels.extend(['peripheral'] * n)
 
@@ -74,7 +77,7 @@ def generate_training_data(n_per_class: int = 600,
     yaw_m = rng.uniform(42, 62, n)
     yaw   = yaw_m * rng.choice([-1, 1], n)
     pitch = rng.uniform(-30, 30, n)
-    dh, dv = _fused(rh, rv, yaw, pitch)
+    dh, dv = fuse_direction(rh, rv, yaw, pitch)
     rows.append(np.stack([rh, rv, yaw, dh, dv], axis=1))
     labels.extend(['away'] * n)
 

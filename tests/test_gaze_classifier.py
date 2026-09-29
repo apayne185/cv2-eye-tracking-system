@@ -1,17 +1,13 @@
+
 import numpy as np
 import pytest
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
-
-from gaze_classifier import (
+from eyetrack.gaze_classifier import (
     FEATURES,
     ZONES,
     GazeZoneClassifier,
     generate_training_data,
 )
-
 
 # ---------------------------------------------------------------------------
 # generate_training_data
@@ -155,3 +151,12 @@ def test_save_and_load(tmp_path, trained_clf):
     # Loaded model should reproduce the same predictions
     x = np.array([0.5, 0.45, 0.0, 0.0, 0.0])
     assert loaded.predict(x) == trained_clf.predict(x)
+
+
+def test_turned_head_with_centred_eyes_is_peripheral():
+    """Iris centred but head turned ~35°: covered by training data, not on_screen."""
+    clf = GazeZoneClassifier().train(*generate_training_data(n_per_class=300))
+    for yaw in (-35.0, 35.0):
+        dh = 0.03 * 1.4 - yaw * 0.014
+        assert clf.predict({"gaze_ratio_h": 0.53, "gaze_ratio_v": 0.45, "yaw": yaw,
+                            "dir_h": dh, "dir_v": 0.0}) == "peripheral"

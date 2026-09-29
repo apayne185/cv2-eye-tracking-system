@@ -7,3 +7,4 @@ dependencies:
   - pip:
       # single source of truth for versions: requirements*.txt
       - -r requirements-dev.txt
+      - -e .

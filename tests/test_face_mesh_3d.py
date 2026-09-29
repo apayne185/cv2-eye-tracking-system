@@ -4,7 +4,11 @@ from pathlib import Path
 
 import numpy as np
 
-from face_mesh_3d import write_ply, export_session_face_mesh, export_gaze_trajectory
+from eyetrack.face_mesh_3d import (
+    export_gaze_trajectory,
+    export_session_face_mesh,
+    write_ply,
+)
 
 
 def _read_ply_vertex_count(path: Path) -> int:

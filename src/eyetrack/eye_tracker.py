@@ -30,7 +30,12 @@ MIN_FIXATION_SECS        = 0.10
 
 
 class EyeTracker:
-    def __init__(self):
+    def __init__(self, *, ear_blink_threshold: float = EAR_BLINK_THRESHOLD,
+                 fixation_velocity: float = FIXATION_VEL_PX_PER_SEC,
+                 min_fixation_secs: float = MIN_FIXATION_SECS):
+        self.ear_blink_threshold = ear_blink_threshold
+        self.fixation_velocity   = fixation_velocity
+        self.min_fixation_secs   = min_fixation_secs
         self._mesh      = None  # lazy: created on first process() call
         self._prev_gaze = None
         self._prev_ts   = None
@@ -91,7 +96,7 @@ class EyeTracker:
 
         left = ear(pts(_LEFT_EAR_IDS))
         right = ear(pts(_RIGHT_EAR_IDS))
-        return (left + right) / 2 < EAR_BLINK_THRESHOLD, float(left), float(right)
+        return (left + right) / 2 < self.ear_blink_threshold, float(left), float(right)
 
     def update_fixation(self, gaze, ts):
         """
@@ -104,7 +109,7 @@ class EyeTracker:
             dt = ts - self._prev_ts
             if dt > 0:
                 vel = np.linalg.norm(np.subtract(gaze, self._prev_gaze)) / dt
-                if vel < FIXATION_VEL_PX_PER_SEC:
+                if vel < self.fixation_velocity:
                     if not self._fixating:
                         self._fix_start = ts
                         self._fixating  = True
@@ -112,7 +117,7 @@ class EyeTracker:
                 else:
                     if self._fixating and self._fix_start is not None:
                         dur = ts - self._fix_start
-                        if dur >= MIN_FIXATION_SECS:
+                        if dur >= self.min_fixation_secs:
                             self.fixations.append({
                                 "x": gaze[0], "y": gaze[1],
                                 "duration": dur, "end_time": ts,
@@ -121,6 +126,22 @@ class EyeTracker:
 
         self._prev_gaze, self._prev_ts = gaze, ts
         return is_fix
+
+    def interrupt_fixation(self):
+        """
+        Call when tracking is lost. Logs any fixation in progress as ending
+        at the last tracked frame and clears velocity history, so the gap
+        isn't read as a stationary gaze.
+        """
+        if self._fixating and self._fix_start is not None:
+            dur = self._prev_ts - self._fix_start
+            if dur >= self.min_fixation_secs:
+                self.fixations.append({
+                    "x": self._prev_gaze[0], "y": self._prev_gaze[1],
+                    "duration": dur, "end_time": self._prev_ts,
+                })
+        self._prev_gaze = self._prev_ts = self._fix_start = None
+        self._fixating  = False
 
     def draw_overlays(self, frame, lms):
         h, w = frame.shape[:2]

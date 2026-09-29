@@ -1,0 +1,25 @@
+# Per-site settings for `eyetrack run --config eyetrack.toml`.
+# Every key is optional; command-line flags override values here.
+
+source = "0"                  # webcam index, video file, or rtsp://... / http://... URL
+output_dir = "data"
+display = true                # false = headless (servers, containers)
+export_ply = false
+# max_frames = 900
+
+calibration_path = "models/calibration.json"
+classifier_path = "models/gaze_zone_classifier.joblib"
+
+# Detection thresholds: tune for camera resolution and viewing distance.
+ear_blink_threshold = 0.20    # eye aspect ratio below this = blink
+fixation_velocity = 25.0      # px/s below which gaze counts as fixating
+min_fixation_secs = 0.10
+
+log_level = "INFO"
+log_format = "text"           # "json" for one JSON object per line
+
+# Areas of interest in frame pixels: name = [x1, y1, x2, y2]
+[aois]
+Left = [50, 100, 300, 400]
+Center = [320, 100, 600, 400]
+Right = [610, 100, 900, 400]

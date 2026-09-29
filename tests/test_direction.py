@@ -1,6 +1,8 @@
 import numpy as np
+import pytest
 
-from direction import GazeDirectionEstimator
+from eyetrack.direction import GazeDirectionEstimator
+from eyetrack.head_pose import EYE_MIDPOINT_MODEL
 
 
 def test_centered_iris_no_head_movement_is_origin():
@@ -22,11 +24,52 @@ def test_right_iris_gives_positive_dir_h():
     assert dh > 0
 
 
-def test_head_yaw_right_adds_positive_dir_h():
+def test_head_turned_toward_image_left_lowers_dir_h():
+    # +yaw = face turned toward image left (HeadPoseEstimator convention)
     est = GazeDirectionEstimator()
-    dh_no_yaw, _ = est.estimate(0.5, 0.5, 0.0, 0.0)
-    dh_yaw, _    = est.estimate(0.5, 0.5, 30.0, 0.0)
-    assert dh_yaw > dh_no_yaw
+    dh, _ = est.estimate(0.5, 0.5, 30.0, 0.0)
+    assert dh < 0
+
+
+def test_head_tilted_down_raises_dir_v():
+    # +pitch = face tilted down; +dir_v = toward image bottom
+    est = GazeDirectionEstimator()
+    _, dv = est.estimate(0.5, 0.5, 0.0, 20.0)
+    assert dv > 0
+
+
+def _head_rotation(yaw, pitch):
+    """solvePnP-style rotation for a head at (yaw, pitch) in camera coordinates."""
+    y, p = np.radians(yaw), np.radians(pitch)
+    ry = np.array([[np.cos(y), 0, np.sin(y)], [0, 1, 0], [-np.sin(y), 0, np.cos(y)]])
+    rx = np.array([[1, 0, 0], [0, np.cos(p), -np.sin(p)], [0, np.sin(p), np.cos(p)]])
+    return ry @ rx @ np.diag([1.0, -1.0, -1.0])
+
+
+@pytest.mark.parametrize("ratio_h, ratio_v, yaw, pitch", [
+    (0.5, 0.5, 30.0, 0.0),     # head only
+    (0.5, 0.5, -30.0, 0.0),
+    (0.5, 0.5, 0.0, 20.0),
+    (0.5, 0.5, 0.0, -20.0),
+    (0.8, 0.5, 0.0, 0.0),      # eyes only
+    (0.2, 0.5, 0.0, 0.0),
+    (0.5, 0.8, 0.0, 0.0),
+    (0.5, 0.2, 0.0, 0.0),
+    (0.75, 0.5, -25.0, 0.0),   # head and eyes the same way
+    (0.25, 0.5, 25.0, 0.0),
+    (0.5, 0.75, 0.0, 15.0),
+])
+def test_2d_direction_agrees_with_3d_ray(ratio_h, ratio_v, yaw, pitch):
+    """The fused 2-D direction must point the same way as the 3-D gaze ray."""
+    est = GazeDirectionEstimator()
+    dh, dv = est.estimate(ratio_h, ratio_v, yaw, pitch)
+    _, ray = est.gaze_ray_3d(ratio_h, ratio_v, _head_rotation(yaw, pitch), np.zeros(3))
+    # the ray points back toward the camera (-z); x, y are image right / down
+    for d2, d3 in ((dh, ray[0]), (dv, ray[1])):
+        if abs(d3) > 1e-6:
+            assert np.sign(d2) == np.sign(d3)
+        else:
+            assert abs(d2) < 1e-6
 
 
 def test_output_clamped_to_unit_range():
@@ -97,5 +140,4 @@ def test_ray_origin_matches_eye_midpoint_at_identity():
     t = np.zeros((3, 1))
     origin, _ = est.gaze_ray_3d(0.5, 0.5, R, t)
     # With identity pose and zero translation, origin = eye midpoint in model space
-    expected = np.array([0.0, 170.0, -135.0])
-    assert np.allclose(origin, expected, atol=1e-6)
+    assert np.allclose(origin, EYE_MIDPOINT_MODEL, atol=1e-6)

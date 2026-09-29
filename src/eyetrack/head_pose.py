@@ -1,18 +1,34 @@
+from importlib.resources import files
+
 import cv2
 import numpy as np
 
-# Generic 6-point 3D face model (mm).
-# Chosen points cover the face geometry needed for stable PnP.
-_MODEL_3D = np.array([
-    (0.0,    0.0,    0.0),     # nose tip          → landmark 1
-    (0.0,  -330.0,  -65.0),   # chin              → landmark 152
-    (-225.0, 170.0, -135.0),  # left eye corner   → landmark 33
-    (225.0,  170.0, -135.0),  # right eye corner  → landmark 263
-    (-150.0,-150.0, -125.0),  # left mouth corner → landmark 61
-    (150.0, -150.0, -125.0),  # right mouth corner→ landmark 291
-], dtype=np.float64)
 
-_LM_IDS = [1, 152, 33, 263, 61, 291]
+# MediaPipe's canonical face model: one 3D vertex per FaceMesh landmark
+# (468), in cm, y-up, face toward +z. Solving PnP against all of them is
+# far better conditioned than a handful of nearly coplanar points, which
+# let yaw flip sign on near-frontal faces. Stored in mm to match the gaze
+# ray. Source and license: src/eyetrack/assets/README.md.
+def _load_canonical_model() -> np.ndarray:
+    text = files("eyetrack").joinpath("assets/canonical_face_model.obj").read_text()
+    verts = [line.split()[1:4] for line in text.splitlines() if line.startswith("v ")]
+    return 10.0 * np.array(verts, dtype=np.float64)
+
+
+_MODEL_3D = _load_canonical_model()
+_N_LANDMARKS = len(_MODEL_3D)          # 468; iris landmarks 468-477 aren't in the model
+_NOSE_TIP = 1
+
+# Midpoint between the two eye centres (corner midpoints), in model space;
+# origin of the 3D gaze ray.
+EYE_MIDPOINT_MODEL = _MODEL_3D[[33, 133, 263, 362]].mean(axis=0)
+
+# The model is y-up with the face toward +z, while camera coordinates are
+# y-down with z pointing away from the camera, so solvePnP's rotation for a head squarely facing
+# the camera is a 180° turn about x. Undoing that before decomposing makes
+# a frontal pose read (0, 0, 0) instead of pitch ≈ ±180°, and keeps
+# RQDecomp3x3 on a single branch so yaw can't jump to 180° - yaw.
+_MODEL_TO_CAMERA = np.diag([1.0, -1.0, -1.0])
 
 
 class HeadPoseEstimator:
@@ -30,7 +46,7 @@ class HeadPoseEstimator:
     def _image_points(self, lms, shape):
         h, w = shape[:2]
         return np.array(
-            [(lms.landmark[i].x * w, lms.landmark[i].y * h) for i in _LM_IDS],
+            [(lms.landmark[i].x * w, lms.landmark[i].y * h) for i in range(_N_LANDMARKS)],
             dtype=np.float64,
         )
 
@@ -38,17 +54,17 @@ class HeadPoseEstimator:
         """Returns (pitch, yaw, roll) in degrees, or (None, None, None) on failure."""
         pts2d = self._image_points(lms, shape)
         ok, rvec, tvec = cv2.solvePnP(_MODEL_3D, pts2d, self.K, self.D,
-                                       flags=cv2.SOLVEPNP_ITERATIVE)
+                                       flags=cv2.SOLVEPNP_SQPNP)
         if not ok:
             self._rvec = self._tvec = self._nose = None
             return None, None, None
 
         self._rvec = rvec
         self._tvec = tvec
-        self._nose = pts2d[0].astype(int)
+        self._nose = pts2d[_NOSE_TIP].astype(int)
 
         rmat, _ = cv2.Rodrigues(rvec)
-        angles  = cv2.RQDecomp3x3(rmat)[0]       # (pitch, yaw, roll) in degrees
+        angles  = cv2.RQDecomp3x3(rmat @ _MODEL_TO_CAMERA)[0]   # (pitch, yaw, roll) in degrees
         return float(angles[0]), float(angles[1]), float(angles[2])
 
     def draw_axes(self, frame, lms=None):

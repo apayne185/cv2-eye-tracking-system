@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
-from AOI import AOITracker
+
+from eyetrack.aoi import AOITracker
 
 AOIS = {"A": (0, 0, 100, 100), "B": (200, 0, 300, 100)}
 
@@ -43,3 +44,12 @@ def test_draws_aoi_rectangles_on_frame():
 def test_default_layout_used_when_none_given():
     tracker = AOITracker()
     assert set(tracker.aois) == {"Left", "Center", "Right"}
+
+
+def test_pause_excludes_gap_from_dwell():
+    tracker = AOITracker(AOIS)
+    tracker.update((50, 50), ts=0.0)
+    tracker.update((50, 50), ts=1.0)
+    tracker.pause()
+    tracker.update((50, 50), ts=60.0)
+    assert tracker.time_spent["A"] == pytest.approx(1.0)

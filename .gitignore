@@ -13,3 +13,6 @@ condaenv.*.requirements.txt
 coverage.xml
 htmlcov/
 .ruff_cache/
+*.egg-info/
+build/
+dist/
