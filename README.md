@@ -224,7 +224,7 @@ pip install -e . -r requirements-dev.txt
 pre-commit install          # run ruff + hygiene checks on every commit
 
 ruff check src tests        # lint
-pytest --cov                # 130 tests, 88% coverage
+pytest --cov                # 144 tests, 88% coverage
 ```
 
 The suite covers the full frame pipeline (driven by synthetic FaceMesh landmarks, so iris, blink, solvePnP and gaze-ray code run for real), session outputs, config validation, video timestamps, and end-to-end `eyetrack run` invocations through real MediaPipe. `tests/test_real_face.py` runs the pipeline on a 4-second public-domain NASA interview clip and checks properties a synthetic face can't: detection rate, frame-to-frame pose stability, and angles in a physically plausible range. The interactive calibration window is exercised manually.
