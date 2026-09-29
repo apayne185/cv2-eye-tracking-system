@@ -50,13 +50,20 @@ def generate_training_data(n_per_class: int = 600,
     labels.extend(['on_screen'] * n)
 
     # --- peripheral ---
+    # Half the samples have the iris displaced (any head angle), half have
+    # the iris near centre with a moderate head turn; without the second
+    # group a turned head with centred eyes fell outside every class.
     # Explicit full-length halves avoid the n//2+n//2 = n-1 trap on odd n
     half = n // 2
-    rh = np.concatenate([rng.uniform(0.25, 0.38, half),
-                         rng.uniform(0.62, 0.75, n - half)])
-    rng.shuffle(rh)
+    n_eyes = n - half
+    eyes_off = np.concatenate([rng.uniform(0.25, 0.38, n_eyes // 2),
+                               rng.uniform(0.62, 0.75, n_eyes - n_eyes // 2)])
+    rh = np.concatenate([eyes_off, rng.normal(0.50, 0.06, half).clip(0.32, 0.68)])
+    head_turn = rng.uniform(25, 45, half) * rng.choice([-1, 1], half)
+    yaw = np.concatenate([rng.uniform(-45, 45, n_eyes), head_turn])
+    order = rng.permutation(n)
+    rh, yaw = rh[order], yaw[order]
     rv    = rng.normal(0.46, 0.09, n).clip(0.20, 0.76)
-    yaw   = rng.uniform(-45, 45, n)
     pitch = rng.normal(0, 10, n).clip(-25, 25)
     dh, dv = fuse_direction(rh, rv, yaw, pitch)
     rows.append(np.stack([rh, rv, yaw, dh, dv], axis=1))
