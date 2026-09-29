@@ -18,7 +18,7 @@ Real-time eye tracking pipeline built with Python, OpenCV, and MediaPipe FaceMes
 | Feature | Details |
 |---|---|
 | **Iris gaze estimation** | Tracks iris position within eye bounds using MediaPipe's 478-point mesh (landmarks 468–477). Outputs normalized horizontal/vertical gaze ratios. |
-| **3D head pose** | `cv2.solvePnP` on 6 facial landmarks → roll, pitch, yaw in degrees. Axes drawn on nose tip in real time. |
+| **3D head pose** | `cv2.solvePnP` (SQPnP) fitting all 468 FaceMesh landmarks to MediaPipe's life-size canonical face model → roll, pitch, yaw in degrees and head distance in mm. Axes drawn on nose tip in real time. |
 | **Blink detection** | Eye Aspect Ratio (EAR) formula on both eyes; blink flagged when avg EAR < 0.20. |
 | **Gaze direction estimation** | Fuses iris ratios with head-pose yaw/pitch to produce a head-independent gaze direction vector (dir_h, dir_v) in [-1, 1]. Visualised as a live miniature indicator overlay. |
 | **3D point cloud export** | `--export-ply` writes two PLY files on exit: (1) sampled face mesh landmarks coloured by time, (2) 3D gaze ray endpoints coloured by horizontal position. Viewable in MeshLab, CloudCompare, or Open3D. |
@@ -150,13 +150,14 @@ cv2-eye-tracking-system/
 │   ├── session.py           # SessionRecorder: CSV, summary, heatmap, PLY outputs
 │   ├── logs.py              # Text or JSON-lines logging
 │   ├── eye_tracker.py       # MediaPipe FaceMesh, iris gaze, EAR blink, fixation
-│   ├── head_pose.py         # solvePnP head pose, axes, gaze ray projection
+│   ├── head_pose.py         # 468-point solvePnP head pose, axes, gaze ray projection
 │   ├── direction.py         # Iris + head-pose fusion, 3D gaze ray
 │   ├── calibration.py       # 5-point linear calibration
 │   ├── gaze_classifier.py   # Random Forest attention-zone classifier
 │   ├── aoi.py               # Areas of interest and dwell time
 │   ├── gaze_analysis.py     # Heatmap accumulator and renderer
-│   └── face_mesh_3d.py      # PLY point cloud export
+│   ├── face_mesh_3d.py      # PLY point cloud export
+│   └── assets/              # MediaPipe canonical face model (Apache-2.0)
 ├── tests/                   # pytest suite, incl. end-to-end CLI runs on generated video
 ├── notebooks/               # analysis.ipynb, classifier.ipynb
 ├── data/                    # Session output — gitignored
@@ -177,7 +178,7 @@ cv2-eye-tracking-system/
 The earlier approach averaged the positions of all eye *outline* landmarks, which tracks face movement but not gaze direction. The iris landmarks (MediaPipe 468–477, enabled via `refine_landmarks=True`) give the actual pupil/iris position, so moving your eyes while keeping your head still produces a meaningful signal.
 
 **Head pose as gaze context**  
-`solvePnP` maps six 2D facial landmarks to a known 3D face model to recover the rotation matrix. Roll/pitch/yaw complement the iris ratios: a centered iris with a 30° yaw still points off-center in world space. These extrinsics feed directly into the 3D gaze ray computation.
+`solvePnP` fits all 468 detected landmarks to MediaPipe's canonical 3D face model to recover rotation and translation. An earlier version used six landmarks on a generic model; those points are nearly coplanar, so the solver could fit a mirrored pose. On public-domain clips of people speaking straight into the lens, yaw spread 25–40° and flipped sign between frames; with 468 points the spread is 1.5–5° and frontal faces read within 3° of zero. The canonical model is life-size, so the translation gives head distance in real millimetres. Roll/pitch/yaw complement the iris ratios (a centred iris with a 30° yaw still points off-centre in world space) and feed the 3D gaze ray.
 
 **Fixation vs. saccade**  
 The velocity threshold (25 px/s) follows the I-VT (Identification by Velocity Threshold) algorithm common in psychophysics research. Saccades typically exceed 300 px/s; the threshold is conservative to reduce noise from head micro-movements.
@@ -224,7 +225,7 @@ pip install -e . -r requirements-dev.txt
 pre-commit install          # run ruff + hygiene checks on every commit
 
 ruff check src tests        # lint
-pytest --cov                # 144 tests, 88% coverage
+pytest --cov                # 145 tests, 88% coverage
 ```
 
 The suite covers the full frame pipeline (driven by synthetic FaceMesh landmarks, so iris, blink, solvePnP and gaze-ray code run for real), session outputs, config validation, video timestamps, and end-to-end `eyetrack run` invocations through real MediaPipe. `tests/test_real_face.py` runs the pipeline on a 4-second public-domain NASA interview clip and checks properties a synthetic face can't: detection rate, frame-to-frame pose stability, and angles in a physically plausible range. The interactive calibration window is exercised manually.
