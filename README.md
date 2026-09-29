@@ -257,7 +257,7 @@ Caveats: 14 subjects, one annotator, only two `away` sources, and broadcast foot
 pip install -e . -r requirements-dev.txt
 pre-commit install          # run ruff + hygiene checks on every commit
 
-ruff check src tests        # lint
+ruff check .                # lint
 pytest --cov                # 167 tests, 88% coverage
 ```
 
