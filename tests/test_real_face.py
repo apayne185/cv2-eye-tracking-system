@@ -4,7 +4,8 @@ public-domain NASA interview clip, face turned roughly 45° from camera.
 
 These guard properties a synthetic face can't: MediaPipe detection on a
 real face, temporally stable pose, and angles in a physically sensible
-range (a level head once read pitch ≈ ±180°).
+range (a level head once read pitch ≈ ±180°), and a 2-D gaze direction
+that agrees with the 3-D gaze ray.
 """
 
 from pathlib import Path
@@ -48,9 +49,19 @@ def test_turned_head_reads_as_large_stable_yaw(df):
     assert df["yaw"].std() < 5            # stable frame to frame
 
 
-def test_gaze_direction_not_saturated(df):
-    saturated = (df["dir_v"].abs() >= 1) | (df["dir_h"].abs() >= 1)
-    assert saturated.mean() < 0.10
+def test_fused_direction_agrees_with_gaze_ray(df):
+    # head and eyes both point toward image right: the 2-D direction and the
+    # 3-D ray must agree (a sign error once made them disagree on every frame)
+    assert (df["dir_h"] > 0).mean() >= 0.95
+    assert (np.sign(df["dir_h"]) == np.sign(df["ray_dx"])).mean() >= 0.95
+
+
+def test_level_gaze_reads_level(df):
+    # head tilted ~20° down, eyes raised: the net gaze is about level, as the
+    # 3-D ray shows; dir_v was once pinned at +1, then read strongly upward
+    assert abs(df["ray_dy"].mean()) < 0.25
+    assert abs(df["dir_v"].mean()) < 0.25
+    assert (df["dir_v"].abs() >= 1).mean() < 0.10
 
 
 def test_gaze_rays_are_unit_vectors(results):
