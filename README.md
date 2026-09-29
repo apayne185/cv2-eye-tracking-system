@@ -110,7 +110,7 @@ AOI dwell (seconds):
 | `timestamp` | Seconds: Unix time for live sources, time since start for video files |
 | `gaze_x`, `gaze_y` | Iris center in pixel coordinates |
 | `gaze_ratio_h`, `gaze_ratio_v` | Normalized gaze position within eye (0–1) |
-| `pitch`, `yaw`, `roll` | Head Euler angles in degrees |
+| `pitch`, `yaw`, `roll` | Head Euler angles in degrees; a head squarely facing the camera is (0, 0, 0) |
 | `left_ear`, `right_ear` | Eye Aspect Ratio per eye |
 | `is_blink` | Boolean |
 | `is_fixation` | Boolean |
@@ -224,10 +224,10 @@ pip install -e . -r requirements-dev.txt
 pre-commit install          # run ruff + hygiene checks on every commit
 
 ruff check src tests        # lint
-pytest --cov                # 118 tests, 88% coverage
+pytest --cov                # 130 tests, 88% coverage
 ```
 
-The suite covers the full frame pipeline (driven by synthetic FaceMesh landmarks, so iris, blink, solvePnP and gaze-ray code run for real), session outputs, config validation, video timestamps, and end-to-end `eyetrack run` invocations through real MediaPipe on generated video. The interactive calibration window is exercised manually.
+The suite covers the full frame pipeline (driven by synthetic FaceMesh landmarks, so iris, blink, solvePnP and gaze-ray code run for real), session outputs, config validation, video timestamps, and end-to-end `eyetrack run` invocations through real MediaPipe. `tests/test_real_face.py` runs the pipeline on a 4-second public-domain NASA interview clip and checks properties a synthetic face can't: detection rate, frame-to-frame pose stability, and angles in a physically plausible range. The interactive calibration window is exercised manually.
 
 ### Continuous integration
 
