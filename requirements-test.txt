@@ -2,4 +2,4 @@
 # doesn't pull in jupyterlab. Dependabot updates all requirement files.
 pytest==9.1.1
 pytest-cov==7.1.0
-ruff==0.16.9
+ruff==0.16.10
